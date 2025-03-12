@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+
+# dotenv
+.env
+
+# input data, saved log
+data/
+*.log
+
+# no use
+utils/instagram_instagrapi.py
+test_instagrapi.py

@@ -1,0 +1,13 @@
+instagrapi
+streamlit
+langchain-openai
+langchain
+dotenv
+langgraph
+langchain-community
+wikipedia
+faiss-cpu
+pandas
+plotly
+sentence-transformers
+instagram-private-api==1.6.0
