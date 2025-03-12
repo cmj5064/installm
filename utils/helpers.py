@@ -13,9 +13,12 @@ import datetime
 
 # 로깅 설정
 logger = logging.basicConfig(
-    filename='bookmarks.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # 터미널에 로그 출력
+        logging.FileHandler('bookmarks.log')  # 파일에 로그 저장
+    ]
 )
 
 def log_error(message: str) -> None:
