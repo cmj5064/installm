@@ -5,6 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import ssl
+from ui.bookmark_viewer import BookmarkViewer
 
 # SSL 인증서 검증 비활성화
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -36,23 +37,62 @@ def sidebar_menu():
 # 북마크 추가 폼
 def add_bookmark_form():
     st.header("북마크 추가")
+
+    # Instagram 로그인 정보를 세션 상태에서 확인
+    if 'insta_logged_in' not in st.session_state:
+        st.session_state.insta_logged_in = False
     
-    with st.form(key="bookmark_form"):
-        url = st.text_input("URL", "https://www.instagram.com/gulguleee27/saved/all-posts/")
-        bookmark_description = st.text_area("설명", "전체")
-        categories_input = st.text_input("카테고리 (쉼표로 구분)", "general")
-        submit_button = st.form_submit_button(label="추가")
+    # 로그인 영역
+    if not st.session_state.insta_logged_in:
+        st.subheader("Instagram 로그인")
+        with st.form(key="instagram_login"):
+            insta_id = st.text_input("Instagram 아이디")
+            insta_pw = st.text_input("Instagram 비밀번호", type="password")
+            login_button = st.form_submit_button(label="로그인")
+            
+            if login_button:
+                if insta_id and insta_pw:
+                    # 로그인 정보를 세션 상태에 저장
+                    st.session_state.insta_id = insta_id
+                    st.session_state.insta_pw = insta_pw
+                    st.session_state.insta_logged_in = True
+                    
+                    # 성공 메시지 표시
+                    st.success("로그인 정보가 저장되었습니다. 이제 북마크를 추가할 수 있습니다.")
+                    st.rerun()  # UI 새로고침
+                else:
+                    st.error("Instagram 아이디와 비밀번호를 모두 입력해주세요.")
+    
+    # 로그인 상태인 경우 북마크 추가 폼 표시
+    else:
+        st.success("Instagram에 로그인되었습니다.")
         
-        if submit_button and url:
-            categories = [cat.strip() for cat in categories_input.split(",") if cat.strip()]
+        # 로그아웃 버튼
+        if st.button("로그아웃"):
+            # 세션 상태에서 로그인 정보 제거
+            if 'insta_id' in st.session_state:
+                del st.session_state.insta_id
+            if 'insta_pw' in st.session_state:
+                del st.session_state.insta_pw
+            st.session_state.insta_logged_in = False
+            st.experimental_rerun()  # UI 새로고침
+    
+        with st.form(key="bookmark_form"):
+            url = st.text_input("URL", "https://www.instagram.com/gulguleee27/saved/all-posts/")
+            bookmark_description = st.text_area("설명", "전체")
+            categories_input = st.text_input("카테고리 (쉼표로 구분)", "general")
+            submit_button = st.form_submit_button(label="추가")
             
-            # 북마크 추가
-            success = add_bookmark(url, bookmark_description, categories)
-            
-            if success:
-                st.success("북마크가 추가되었습니다!")
-            else:
-                st.error("북마크 추가 중 오류가 발생했습니다.")
+            if submit_button and url:
+                categories = [cat.strip() for cat in categories_input.split(",") if cat.strip()]
+                
+                # 북마크 추가
+                success = add_bookmark(url, bookmark_description, categories)
+                
+                if success:
+                    st.success("북마크가 추가되었습니다!")
+                else:
+                    st.error("북마크 추가 중 오류가 발생했습니다.")
 
 # 북마크 검색 기능
 def search_bookmark():
@@ -71,6 +111,9 @@ def search_bookmark():
         
         if bookmarks:
             display_bookmarks(bookmarks)
+            # viewer = BookmarkViewer(db)
+            # viewer.display_bookmarks(bookmarks=bookmarks)
+
         else:
             st.info("검색 결과가 없습니다.")
 
@@ -91,6 +134,8 @@ def view_by_category():
         bookmarks = db.get_bookmarks_by_category(selected_category)
         if bookmarks:
             display_bookmarks(bookmarks)
+            # viewer = BookmarkViewer(db)
+            # viewer.display_bookmarks(bookmarks=bookmarks)
         else:
             st.info(f"'{selected_category}' 카테고리에 북마크가 없습니다.")
 
@@ -137,23 +182,23 @@ def add_bookmarks_batch(bookmarks: List[dict]) -> Tuple[int, int]:
     
     return (success_count, fail_count)
 
-# 북마크 표시 함수
+# 북마크 표시 함수 => # NOTE ui 작성 코드에서 가져옴
 def display_bookmarks(bookmarks):
     for bookmark in bookmarks:
         col1, col2 = st.columns([1, 3])
         
         with col1:
-            if bookmark.get("og_image"):
+            if bookmark.get("thumbnail_url"):
                 try:
-                    st.image(bookmark["og_image"], width=150)
+                    st.image(bookmark["thumbnail_url"], width=300)
                 except:
                     st.write("🔖")
             else:
                 st.write("🔖")
         
         with col2:
-            st.subheader(f"[{bookmark.get('og_title', bookmark['url'])}]({bookmark['url']})")
-            st.write(bookmark.get("og_description", bookmark.get("caption", "")))
+            st.write(bookmark.get("url", ""))
+            st.write(bookmark.get("caption", ""))
             
             # 카테고리 및 태그 표시
             if "categories" in bookmark:
