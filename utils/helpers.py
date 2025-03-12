@@ -24,7 +24,16 @@ logger = logging.basicConfig(
 def log_error(message: str) -> None:
     """오류 로깅 함수"""
     logging.error(message)
-    print(f"오류: {message}")
+    print(f"error: {message}")
+
+def log_info(message):
+    """정보 메시지를 로깅합니다.
+    
+    Args:
+        message: 로깅할 정보 메시지
+    """
+    logging.info(message)
+    print(f"info: {message}")
 
 def extract_text_from_url(url: str) -> str:
     """URL에서 텍스트 추출"""
@@ -83,14 +92,6 @@ def create_opengraph_preview(url: str) -> Dict[str, Any]:
     except Exception as e:
         log_error(f"OpenGraph 메타데이터 추출 중 오류: {e}")
         return result
-
-def log_info(message):
-    """정보 메시지를 로깅합니다.
-    
-    Args:
-        message: 로깅할 정보 메시지
-    """
-    logger.info(message)
 
 def is_valid_url(url):
     """URL이 유효한지 확인합니다.
