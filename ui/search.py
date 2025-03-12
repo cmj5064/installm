@@ -59,4 +59,4 @@ class SearchUI:
                         
                 except Exception as e:
                     st.error(f"검색 중 오류가 발생했습니다: {e}")
-                    st.warning("벡터 스토어를 구축해야 의미 검색이 가능합니다. '벡터 스토어 관리' 메뉴에서 구축해주세요.")
+                    st.warning("벡터 스토어를 구축해야 의미 검색이 가능합니다. '북마크 추가' 메뉴를 활용하여 구축해주세요.")
