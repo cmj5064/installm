@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import logging
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Optional
 import json
 import streamlit as st
 
@@ -45,6 +45,19 @@ class BookmarkDatabase:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
+
+        # image, thumbnail 필드 추가 (이미 존재하는 테이블에 필드를 추가하기 위한 마이그레이션)
+        try:
+            cursor.execute('ALTER TABLE bookmarks ADD COLUMN thumbnail TEXT')
+        except sqlite3.OperationalError:
+            # 이미 필드가 존재하는 경우 예외가 발생하므로 무시
+            pass
+            
+        try:
+            cursor.execute('ALTER TABLE bookmarks ADD COLUMN image TEXT')
+        except sqlite3.OperationalError:
+            # 이미 필드가 존재하는 경우 예외가 무시
+            pass
         
         # 설정 테이블 생성
         cursor.execute('''

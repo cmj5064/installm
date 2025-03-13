@@ -91,22 +91,23 @@ class BookmarkViewer:
         # 썸네일 이미지
         if thumbnail_url:
             # 직접 이미지 URL을 사용해 표시
-            try:
-                st.image(thumbnail_url, width=300, use_container_width=True)
-                log_info(f"st.image 로드 성공: {thumbnail_url}")
-            except Exception as e:
-                log_error((f"st.image 이미지 로드 실패: {str(e)}"))
+            # try:
+            #     st.image(thumbnail_url, width=300, use_container_width=True)
+            #     log_info(f"st.image 로드 성공: {thumbnail_url}")
+            # except Exception as e:
+            #     log_error((f"st.image 이미지 로드 실패: {str(e)}"))
                 
-                # 이미지 로드 실패 시 웹서버 프록시 사용
-                try:
-                    proxy_url = f"https://images.weserv.nl/?url={thumbnail_url}"
-                    st.image(proxy_url, width=300)
-                    log_info(f"proxy_url로 st.image 로드 성공: {thumbnail_url}")
-                except Exception as e:
-                    log_error(f"프록시 이미지도 실패: {str(e)}")
-                    # 마지막 수단으로 Instagram URL에서 이미지 추출 시도
-                    if "url" in bookmark:
-                        self.get_instagram_image(bookmark["thumbnail_url"], bookmark["url"])
+            #     # 이미지 로드 실패 시 웹서버 프록시 사용
+            #     try:
+            #         proxy_url = f"https://images.weserv.nl/?url={thumbnail_url}"
+            #         st.image(proxy_url, width=300)
+            #         log_info(f"proxy_url로 st.image 로드 성공: {thumbnail_url}")
+            #     except Exception as e:
+            #         log_error(f"프록시 이미지도 실패: {str(e)}")
+            #         # 마지막 수단으로 Instagram URL에서 이미지 추출 시도
+            #         if "url" in bookmark:
+            #             self.get_instagram_image(bookmark["thumbnail_url"], bookmark["url"])
+            self.get_instagram_image(bookmark["thumbnail_url"], bookmark["url"])
         
         # # 북마크 제목 (캡션 앞부분)
         # title = caption[:30] + "..." if len(caption) > 30 else caption
@@ -208,7 +209,7 @@ class BookmarkViewer:
 
     def get_instagram_image(self, img_url, url):
         """Instagram 페이지에서 이미지 추출"""
-        self.logger.info(f"Instagram 이미지 추출 시도: {url}")
+        log_info(f"Instagram 이미지 추출 시도: {url}")
         st.write("**1. Facebook Graph API를 통한 Instagram 데이터 가져오기:**")
         
         # access_token = st.secrets.get("INSTA_API_TOKEN", "")
@@ -236,7 +237,7 @@ class BookmarkViewer:
                 "fields": "thumbnail_url,author_name,provider_name"
             }
             
-            response = requests.get(oembed_url, params=params, timeout=15)
+            response = requests.get(oembed_url, params=params, timeout=15, verify=False)
             response.raise_for_status()
             
             data = response.json()
@@ -250,13 +251,13 @@ class BookmarkViewer:
                 return None
                 
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"API 요청 오류: {str(e)}")
+            log_error(f"API 요청 오류: {str(e)}")
             st.error(f"API 요청 오류: {str(e)}")
         except ValueError as e:
-            self.logger.error(f"JSON 파싱 오류: {str(e)}")
+            log_error(f"JSON 파싱 오류: {str(e)}")
             st.error(f"데이터 파싱 오류: {str(e)}")
         except Exception as e:
-            self.logger.error(f"오류 발생: {str(e)}")
+            log_error(f"오류 발생: {str(e)}")
             st.error(f"오류 발생: {str(e)}")
         
         return None

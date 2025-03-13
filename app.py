@@ -5,16 +5,17 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import ssl
-from ui.bookmark_viewer import BookmarkViewer
 
 # SSL 인증서 검증 비활성화
 ssl._create_default_https_context = ssl._create_unverified_context
 
 # 커스텀 모듈 import
-from db import BookmarkDatabase
-from vector_store import VectorStore
+from agent.search import Search
+from ui.bookmark_viewer import BookmarkViewer
 from utils.helpers import log_error
 from utils.instagram import InstagramClient
+from db import BookmarkDatabase
+from vector_store import VectorStore
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -263,21 +264,23 @@ def add_bookmarks_batch(bookmarks: List[dict]) -> Tuple[int, int]:
 def search_bookmark():
     st.header("북마크 검색")
     
-    search_type = st.radio("검색 유형", ["키워드 검색", "의미 검색"])
+    search_type = st.radio("검색 유형", ["키워드 검색", "의미 검색", "다중 검색"])
     search_query = st.text_input("검색어를 입력하세요")
+
+    search = Search(db, vector_store)
     
     if search_query:
         if search_type == "키워드 검색":
-            bookmarks = db.search_bookmarks(search_query)
-        else:  # 의미 검색
-            bookmarks = vector_store.search_bookmarks(search_query)
-            # TODO script 분리해서 (semantic_search.py) filtering agent 등 추가해서 고도화
-            # bookmarks = semantic_search(serach_query)
+            bookmarks = search.keyword_search(search_query)
+        elif search_type == "의미 검색":
+            bookmarks = search.semantic_search(search_query)
+        elif search_type == "다중 검색":
+            bookmarks = search.multi_search(search_query)
         
         if bookmarks:
-            # display_bookmarks(bookmarks)
-            viewer = BookmarkViewer(db)
-            viewer.display_bookmarks(bookmarks=bookmarks)
+            display_bookmarks(bookmarks)
+            # viewer = BookmarkViewer(db)
+            # viewer.display_bookmarks(bookmarks=bookmarks)
 
         else:
             st.info("검색 결과가 없습니다.")
