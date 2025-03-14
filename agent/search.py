@@ -1,4 +1,4 @@
-from .agents import FilteringAgent
+from .agents import FilterAgent
 
 class Search:
     """agent를 활용한 검색 수행"""
@@ -16,6 +16,6 @@ class Search:
     
     def multi_search(self, search_query):
         bookmarks = self.vector_store.search_bookmarks(search_query)
-        filter = FilteringAgent()
+        filter = FilterAgent()
         bookmarks = filter.run(search_query, bookmarks)
         return bookmarks
