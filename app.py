@@ -16,6 +16,7 @@ from utils.helpers import log_error
 from utils.instagram import InstagramClient
 from db import BookmarkDatabase
 from vector_store import VectorStore
+from agent.agents import CategorizeAgent
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -37,6 +38,11 @@ def get_vector_store(path):
     """벡터 스토어 인스턴스를 반환합니다."""
     return VectorStore(path)
 
+@st.cache_resource
+def get_categorize_agent():
+    """카테고리 분류 에이전트를 반환합니다."""
+    return CategorizeAgent()
+
 # 기본 경로 및 설정
 DATA_DIR = Path("./data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -45,6 +51,10 @@ DB_PATH = DATA_DIR / "bookmarks.db"
 # 데이터베이스 및 벡터 스토어 초기화
 db = get_db(str(DB_PATH))
 vector_store = get_vector_store(str(DB_PATH))
+categorize_agent = get_categorize_agent()
+
+# 카테고리 목록 가져오기
+categorize_agent.base_categories = db.get_all_categories()
 
 # 사이드바 메뉴 정의
 def sidebar_menu():
@@ -249,6 +259,37 @@ def add_bookmarks_batch(bookmarks: List[dict]) -> Tuple[int, int]:
     success_count, fail_count = db.add_bookmark_batch(bookmarks)
     
     if success_count > 0:
+        # 성공한 북마크에 대해 카테고리 분류 및 연결
+        for bookmark in bookmarks:
+            if bookmark.get('feed_id'):
+                # 북마크 ID 가져오기
+                conn = db._get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (bookmark['feed_id'],))
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result:
+                    bookmark_id = result[0]
+                    caption = bookmark.get('caption', '')
+                    
+                    # 카테고리 분류
+                    if not bookmark.get('categories'):
+                        response = categorize_agent.classify(
+                            caption=caption,
+                            hashtags=bookmark.get('hashtags', [])
+                        )
+                        bookmark['categories'] = response["categories"]
+                        bookmark['category_reason'] = response["category_reason"]
+                    
+                    # 카테고리 연결
+                    db.add_bookmark_categories(
+                        bookmark_id=bookmark_id,
+                        categories=bookmark['categories'],
+                        category_reason=bookmark['category_reason'],
+                        caption=caption
+                    )
+        
         # 벡터 저장소에 성공한 북마크만 추가
         successful_bookmarks = []
         for bookmark in bookmarks:
@@ -290,7 +331,7 @@ def view_by_category():
     st.header("카테고리별 보기")
     
     # 모든 카테고리 가져오기
-    categories = db.get_categories()
+    categories = db.get_all_categories()
     
     if not categories:
         st.info("저장된 카테고리가 없습니다.")
@@ -326,12 +367,16 @@ def display_bookmarks(bookmarks):
             st.write(bookmark.get("caption", ""))
             
             # 카테고리 및 태그 표시
-            if "categories" in bookmark:
-                categories = ", ".join([f"#{cat}" for cat in bookmark["categories"]])
-                st.write(f"카테고리: {categories}")
+            categories = db.get_bookmark_categories(bookmark["id"])
+            if categories:
+                st.write("카테고리:")
+                for cat in categories:
+                    st.write(f"- #{cat['name']}: {cat['reason']}")
+                    if cat['caption'] != bookmark.get('caption', ''):
+                        st.write(f"  📝 카테고리 지정 당시 캡션: {cat['caption']}")
             
-            if "tags" in bookmark:
-                tags = " ".join([f"#{tag}" for tag in bookmark["tags"]])
+            if "hashtags" in bookmark:
+                tags = " ".join([f"#{tag}" for tag in bookmark["hashtags"]])
                 st.write(f"태그: {tags}")
             
             # 날짜 표시

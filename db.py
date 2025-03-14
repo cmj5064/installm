@@ -46,28 +46,37 @@ class BookmarkDatabase:
         )
         ''')
 
-        # image, thumbnail 필드 추가 (이미 존재하는 테이블에 필드를 추가하기 위한 마이그레이션)
-        try:
-            cursor.execute('ALTER TABLE bookmarks ADD COLUMN thumbnail TEXT')
-        except sqlite3.OperationalError:
-            # 이미 필드가 존재하는 경우 예외가 발생하므로 무시
-            pass
-            
-        try:
-            cursor.execute('ALTER TABLE bookmarks ADD COLUMN image TEXT')
-        except sqlite3.OperationalError:
-            # 이미 필드가 존재하는 경우 예외가 무시
-            pass
-        
-        # 설정 테이블 생성
+        # 카테고리 테이블 생성
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
-        
+
+        # 북마크-카테고리 연결 테이블 생성
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bookmark_categories (
+            bookmark_id INTEGER,
+            category_id INTEGER,
+            caption TEXT,
+            category_reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (bookmark_id, category_id),
+            FOREIGN KEY (bookmark_id) REFERENCES bookmarks(id) ON DELETE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+        )
+        ''')
+
+        # 기본 카테고리 추가
+        default_categories = ["여행", "맛집"]
+        for category in default_categories:
+            try:
+                cursor.execute("INSERT INTO categories (name) VALUES (?)", (category,))
+            except sqlite3.IntegrityError:
+                pass  # 이미 존재하는 카테고리는 무시
+
         conn.commit()
         conn.close()
         
@@ -488,3 +497,181 @@ class BookmarkDatabase:
     #     except Exception as e:
     #         self.logger.error(f"북마크 가져오기 실패: {e}")
     #         return (0, 0)
+
+    def add_category(self, name: str) -> int:
+        """새로운 카테고리를 추가합니다.
+        
+        Args:
+            name: 카테고리 이름
+            
+        Returns:
+            카테고리 ID
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            INSERT INTO categories (name)
+            VALUES (?)
+            ''', (name,))
+            
+            category_id = cursor.lastrowid
+            conn.commit()
+            self.logger.info(f"카테고리 추가됨: {name}")
+            return category_id
+            
+        except sqlite3.IntegrityError:
+            # 이미 존재하는 카테고리인 경우 ID 반환
+            cursor.execute("SELECT id FROM categories WHERE name = ?", (name,))
+            return cursor.fetchone()[0]
+            
+        except sqlite3.Error as e:
+            conn.rollback()
+            self.logger.error(f"카테고리 추가 실패: {e}")
+            return -1
+            
+        finally:
+            conn.close()
+
+    def get_all_categories(self) -> List[str]:
+        """모든 카테고리 목록을 가져옵니다.
+        
+        Returns:
+            카테고리 이름 목록
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("SELECT name FROM categories ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+            
+        except sqlite3.Error as e:
+            self.logger.error(f"카테고리 목록 가져오기 실패: {e}")
+            return []
+            
+        finally:
+            conn.close()
+
+    def add_bookmark_categories(self, bookmark_id: int, categories: List[str], category_reason: str, caption: str) -> bool:
+        """북마크에 카테고리를 연결합니다.
+        
+        Args:
+            bookmark_id: 북마크 ID
+            categories: 카테고리 이름 목록
+            category_reason: 카테고리 분류 이유
+            caption: 북마크 캡션
+            
+        Returns:
+            성공 여부
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            for category_name in categories:
+                # 카테고리 추가 또는 가져오기
+                category_id = self.add_category(category_name)
+                if category_id == -1:
+                    continue
+                
+                # 북마크-카테고리 연결
+                cursor.execute('''
+                INSERT INTO bookmark_categories (bookmark_id, category_id, caption, category_reason)
+                VALUES (?, ?, ?, ?)
+                ''', (bookmark_id, category_id, caption, category_reason))
+            
+            conn.commit()
+            return True
+            
+        except sqlite3.Error as e:
+            conn.rollback()
+            self.logger.error(f"북마크 카테고리 연결 실패: {e}")
+            return False
+            
+        finally:
+            conn.close()
+
+    def get_bookmark_categories(self, bookmark_id: int) -> List[Dict[str, Any]]:
+        """북마크의 카테고리 정보를 가져옵니다.
+        
+        Args:
+            bookmark_id: 북마크 ID
+            
+        Returns:
+            카테고리 정보 목록 (이름과 분류 이유)
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            SELECT c.name, bc.caption, bc.category_reason
+            FROM categories c
+            JOIN bookmark_categories bc ON c.id = bc.category_id
+            WHERE bc.bookmark_id = ?
+            ORDER BY c.name
+            ''', (bookmark_id,))
+            
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    'name': row[0],
+                    'caption': row[1],
+                    'reason': row[2]
+                })
+            return results
+            
+        except sqlite3.Error as e:
+            self.logger.error(f"북마크 카테고리 가져오기 실패: {e}")
+            return []
+            
+        finally:
+            conn.close()
+
+    def get_bookmarks_by_category(self, category_name: str) -> List[Dict[str, Any]]:
+        """특정 카테고리의 북마크 목록을 가져옵니다.
+        
+        Args:
+            category_name: 카테고리 이름
+            
+        Returns:
+            북마크 목록
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            SELECT b.*, bc.category_reason, bc.caption as category_caption
+            FROM bookmarks b
+            JOIN bookmark_categories bc ON b.id = bc.bookmark_id
+            JOIN categories c ON bc.category_id = c.id
+            WHERE c.name = ?
+            ORDER BY b.created_at DESC
+            ''', (category_name,))
+            
+            columns = [desc[0] for desc in cursor.description]
+            results = []
+            
+            for row in cursor.fetchall():
+                item = dict(zip(columns, row))
+                
+                # 해시태그 JSON 파싱
+                if item.get('hashtags'):
+                    try:
+                        item['hashtags'] = json.loads(item['hashtags'])
+                    except json.JSONDecodeError:
+                        item['hashtags'] = []
+                
+                results.append(item)
+                
+            return results
+            
+        except sqlite3.Error as e:
+            self.logger.error(f"카테고리별 북마크 가져오기 실패: {e}")
+            return []
+            
+        finally:
+            conn.close()

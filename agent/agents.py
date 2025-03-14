@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from .prompts import FilteringPrompt
+from .prompts import FilteringPrompt, CategoryPrompt
 from dotenv import load_dotenv
 import os
 from langchain_openai import AzureChatOpenAI
@@ -15,16 +15,86 @@ llm = AzureChatOpenAI(
     temperature=0.0,
 )
 
-class FilteringAgent:
+class CategorizeAgent:
+    """북마크의 카테고리를 분류하는 에이전트"""
+    
+    def __init__(self):
+        self.llm = llm
+        
+        # 기본 카테고리 목록
+        self.base_categories = ["여행", "맛집", "개구리"] # TODO: 초기 세팅 혹은 db가 있는 경우 db에 존재하는 카테고리 list 받아오기
+    
+    def _update_base_categories(self, new_categories: List[str]) -> None:
+        """새로운 카테고리를 기본 카테고리 목록에 추가합니다.
+        
+        Args:
+            new_categories: 추가할 새로운 카테고리 목록
+        """
+        for category in new_categories:
+            if category not in self.base_categories:
+                self.base_categories.append(category)
+                print(f"새로운 카테고리 추가됨: {category}")
+    
+    def classify(self, caption: str, hashtags: List[str]) -> CategoryPrompt.OutputFormat:
+        """게시물의 카테고리를 분류합니다.
+        
+        Args:
+            caption: 게시물 설명
+            hashtags: 해시태그 목록
+            
+        Returns:
+            분류된 카테고리 정보
+        """
+        # CategoryPrompt 인스턴스 생성
+        prompt = CategoryPrompt(
+            caption=caption,
+            hashtags=hashtags,
+            base_categories=self.base_categories
+        )
+        
+        # 프롬프트 구성
+        chat_messages = [
+            ("system", prompt.get_system_prompt()),
+            ("human", prompt.get_user_prompt())
+        ]
+
+        # LLM chain 생성
+        chain = chat_messages | self.llm | prompt.OutputFormat
+        response = chain.invoke()
+        
+        # 새로운 카테고리가 있다면 base_categories에 추가
+        self._update_base_categories([name for name in response["categories"] if name not in self.base_categories])
+        
+        return response
+    
+    def classify_batch(self, bookmarks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """여러 북마크의 카테고리를 일괄 분류합니다.
+        
+        Args:
+            bookmarks: 북마크 목록
+            
+        Returns:
+            카테고리가 추가된 북마크 목록
+        """
+        for bookmark in bookmarks:
+            caption = bookmark.get('caption', '')
+            hashtags = bookmark.get('hashtags', [])
+            
+            if caption or hashtags:
+                response = self.classify(caption, hashtags)
+                bookmark['categories'] = response["categories"]
+                bookmark['category_reason'] = response["category_reason"]
+        
+        return bookmarks
+
+class FilterAgent:
     """검색 결과 필터링을 위한 에이전트"""
     
     def __init__(self):
         """
         검색 결과 필터링 에이전트 초기화
         """
-        self.llm = llm 
-        self.response = None
-        self.output_format = None
+        self.llm = llm
         
     def filter(self, query: str, bookmarks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -35,7 +105,7 @@ class FilteringAgent:
             bookmarks: 필터링할 북마크 리스트
             
         Returns:
-            상태 정보를 포함한 딕셔너리
+            필터링 결과가 추가된 상태 정보
         """
         # 상태 정보를 딕셔너리 형태로 관리
         state = {
@@ -51,70 +121,37 @@ class FilteringAgent:
         system_prompt = prompt.get_system_prompt()
         user_prompt = prompt.get_user_prompt()
         
-        # 출력 형식 저장
-        self.output_format = prompt.OutputFormat
-        
         # 프롬프트 구성
         chat_messages = [
             ("system", system_prompt),
             ("human", user_prompt)
         ]
+
+        # # 구조화된 LLM 생성
+        # structured_llm = self.llm.with_structured_output(prompt.OutputFormat)
         
-        # LLM 호출 및 결과 저장
-        self.response = self.llm.invoke(chat_messages).content
+        # # LLM 호출 및 결과 저장
+        # response = structured_llm.invoke(chat_messages)
+
+        # LLM chain 생성성
+        chain = chat_messages | self.llm | prompt.OutputFormat
+
+        response = chain.invoke()
+
+        # 결과에서 북마크 인덱스 추출 (문자열 리스트에서 정수로 변환)
+        relevant_indices = [int(idx) for idx in response["bookmark_indexes"]]
         
-        return state
-    
-    def parser(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        LLM 응답을 구조화된 데이터로 파싱합니다.
+        # 유효한 인덱스만 필터링 (범위 체크)
+        valid_indices = [idx for idx in relevant_indices if 0 <= idx < len(state["bookmarks"])]
         
-        Args:
-            state: 현재 상태 정보
-            
-        Returns:
-            필터링 결과가 추가된 상태 정보
-        """
-        try:
-            # 파싱을 위한 프롬프트 구성
-            parsing_prompt = f"""
-            앞서 생성된 응답을 구조화된 형식으로 파싱하세요:
-            
-            응답: {self.response}
-            
-            위 응답으로부터 관련 있는 북마크의 index를 추출하여 list로 만드세요.
-            """
-            
-            # 구조화된 LLM 생성
-            structured_llm = self.llm.with_structured_output(self.output_format)
-            
-            # 파싱 수행
-            chat_messages = [
-                ("system", "당신은 텍스트에서 정보를 추출하여 구조화된 형식으로 변환하는 전문가입니다."),
-                ("human", parsing_prompt)
-            ]
-            
-            result = structured_llm.invoke(chat_messages)
-            
-            # 결과에서 북마크 인덱스 추출 (문자열 리스트에서 정수로 변환)
-            relevant_indices = [int(idx) for idx in result.bookmark_indexes]
-            
-            # 유효한 인덱스만 필터링 (범위 체크)
-            valid_indices = [idx for idx in relevant_indices if 0 <= idx < len(state["bookmarks"])]
-            
-            # 인덱스가 비어있으면 원본 반환
-            if not valid_indices:
-                print("필터링 결과가 없습니다. 원본 북마크를 반환합니다.")
-                state["filtered_bookmarks"] = state["bookmarks"]
-            else:
-                # 관련 있는 북마크만 필터링하여 반환
-                state["filtered_bookmarks"] = [state["bookmarks"][idx] for idx in valid_indices]
-                
-        except Exception as e:
-            print(f"파싱 중 오류 발생: {e}")
-            # 오류 발생 시 원본 북마크 반환
+        # 인덱스가 비어있으면 원본 반환
+        if not valid_indices:
+            print("필터링 결과가 없습니다. 원본 북마크를 반환합니다.")
             state["filtered_bookmarks"] = state["bookmarks"]
-            
+        else:
+            # 관련 있는 북마크만 필터링하여 반환
+            state["filtered_bookmarks"] = [state["bookmarks"][idx] for idx in valid_indices]
+    
         return state
     
     def run(self, query: str, bookmarks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -131,9 +168,6 @@ class FilteringAgent:
         try:
             # 필터링 단계
             state = self.filter(query, bookmarks)
-            
-            # 파싱 단계
-            state = self.parser(state)
             
             return state["filtered_bookmarks"]
             
