@@ -40,11 +40,22 @@ class BookmarkDatabase:
             caption TEXT,
             media_url TEXT,
             thumbnail_url TEXT,
+            thumbnail TEXT,
             url TEXT,
             hashtags TEXT,
+            category TEXT,
+            category_reason TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
+
+        # thumbnail 컬럼 추가 (없는 경우에만)
+        try:
+            cursor.execute("ALTER TABLE bookmarks ADD COLUMN thumbnail TEXT")
+            self.logger.info("thumbnail 컬럼 추가 완료")
+        except sqlite3.OperationalError:
+            # 컬럼이 이미 존재하는 경우 무시
+            pass
 
         # 카테고리 테이블 생성
         cursor.execute('''
@@ -55,22 +66,8 @@ class BookmarkDatabase:
         )
         ''')
 
-        # 북마크-카테고리 연결 테이블 생성
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS bookmark_categories (
-            bookmark_id INTEGER,
-            category_id INTEGER,
-            caption TEXT,
-            category_reason TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (bookmark_id, category_id),
-            FOREIGN KEY (bookmark_id) REFERENCES bookmarks(id) ON DELETE CASCADE,
-            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
-        )
-        ''')
-
         # 기본 카테고리 추가
-        default_categories = ["여행", "맛집"]
+        default_categories = ["여행", "맛집", "영화", "공연", "개구리"]
         for category in default_categories:
             try:
                 cursor.execute("INSERT INTO categories (name) VALUES (?)", (category,))
@@ -87,56 +84,13 @@ class BookmarkDatabase:
             SQLite 데이터베이스 연결 객체
         """
         return sqlite3.connect(self.db_path)
-        
-    def add_bookmark(self, bookmark_data: Dict[str, Any]) -> int:
-        """북마크 데이터를 저장합니다.
-        
-        Args:
-            bookmark_data: 북마크 데이터 딕셔너리
-            
-        Returns:
-            저장된 북마크의 ID
-        """
-        conn = self._get_connection()
-        cursor = conn.cursor()
 
-        # 중복 피드 체크
-        cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (bookmark_data['feed_id'],))
-        existing = cursor.fetchone()
-        if existing:
-            self.logger.info(f"DB에 저장되어 있는 피드이므로 넘어갑니다. feed_id: {bookmark_data['feed_id']}")
-            conn.close()
-            return -1  # 이미 존재하는 항목
-        
-        # 해시태그는 JSON으로 저장
-        if 'hashtags' in bookmark_data and isinstance(bookmark_data['hashtags'], list):
-            bookmark_data['hashtags'] = json.dumps(bookmark_data['hashtags'], ensure_ascii=False)
-        
-        try:
-            cursor.execute('''
-            INSERT INTO bookmarks (collection_id, feed_id, media_type, caption, media_url, thumbnail_url, url, hashtags)
-            VALUES (:collection_id, :feed_id, :media_type, :caption, :media_url, :thumbnail_url, :url, :hashtags)
-            ''', bookmark_data)
-            
-            bookmark_id = cursor.lastrowid
-            conn.commit()
-            self.logger.info(f"북마크 저장됨: ID {bookmark_id}")
-            return bookmark_id
-            
-        except sqlite3.Error as e:
-            conn.rollback()
-            self.logger.error(f"북마크 저장 실패: {e}")
-            st.error(f"북마크 저장 실패: {e}")
-            return -1
-            
-        finally:
-            conn.close()
-
-    def add_bookmark_batch(self, bookmarks: List[dict]) -> Tuple[int, int]:
-        """북마크 목록을 일괄적으로 추가합니다.
+    def add_bookmark_batch(self, bookmarks: List[dict], categorize_agent=None) -> Tuple[int, int]:
+        """북마크 목록을 일괄적으로 추가하고 자동으로 카테고리를 분류합니다.
         
         Args:
             bookmarks: 북마크 목록
+            categorize_agent: 카테고리 분류 에이전트 (선택 사항)
             
         Returns:
             (성공한 항목 수, 실패한 항목 수) 튜플
@@ -144,15 +98,85 @@ class BookmarkDatabase:
         if not bookmarks:
             return (0, 0)
         
-        conn = self._get_connection()
-        cursor = conn.cursor()
         success_count = 0
         fail_count = 0
-        
+
+        conn = self._get_connection()
         try:
             # 트랜잭션 시작
-            conn.execute('BEGIN TRANSACTION')
+            conn.execute('BEGIN IMMEDIATE')  # 명시적으로 락을 획득하여 충돌 방지
+            cursor = conn.cursor()
+
+            # 1단계: 카테고리 분류 (북마크 저장 전 수행)
+            if categorize_agent:
+                # Streamlit UI가 있는 경우 진행 상황 표시
+                progress_bar = None
+                if 'st' in globals() and hasattr(st, 'progress'):
+                    # 빈 컨테이너 생성
+                    info_container = st.empty()
+                    info_container.info("카테고리 자동 분류 중...")
+                    progress_bar = st.progress(0)
+                
+                total_items = len(bookmarks)
+                
+                # 각 북마크별로 카테고리 분류
+                for i, bookmark in enumerate(bookmarks):
+                    # 기존에 저장된 feed인지 확인
+                    feed_id = bookmark.get('feed_id')
+                    if not feed_id:
+                        self.logger.warning("feed_id가 없는 북마크는 카테고리 생성 건너뜀")
+                        continue
+                    cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+                    existing = cursor.fetchone()
+                    
+                    if not existing:
+                        try:
+                            caption = bookmark.get('caption', '')
+                            
+                            # 해시태그가 JSON 문자열로 저장되어 있으면 다시 파싱
+                            hashtags = bookmark.get('hashtags', [])
+                            if isinstance(hashtags, str):
+                                try:
+                                    hashtags = json.loads(hashtags)
+                                except:
+                                    hashtags = []
+                            
+                            # 카테고리 분류
+                            try:
+                                response = categorize_agent.classify(
+                                    caption=caption,
+                                    hashtags=hashtags
+                                )
+                                bookmark['category'] = response.categories
+                                bookmark['category_reason'] = response.category_reason
+                                # 기존 st.info 대신 info_container 업데이트
+                                if 'st' in globals() and hasattr(st, 'info') and 'info_container' in locals():
+                                    info_container.info(f"카테고리 자동 분류 중...: {bookmark['category']}")
+                            except Exception as e:
+                                self.logger.error(f"북마크 카테고리 분류 중 오류: {str(e)}")
+                                if 'st' in globals() and hasattr(st, 'warning'):
+                                    st.warning(f"북마크 카테고리 분류 중 오류: {str(e)}")
+                                bookmark['category'] = "기타"
+                                bookmark['category_reason'] = f"카테고리 분류 중 오류 발생: {str(e)}"
+                        
+                        except Exception as e:
+                            self.logger.error(f"북마크 처리 중 오류: {str(e)}")
+                            bookmark['category'] = "기타"
+                            bookmark['category_reason'] = f"처리 중 오류: {str(e)}"
+                    
+                    # 진행상황 업데이트
+                    if progress_bar:
+                        progress_bar.progress((i + 1) / total_items)
+                
+                # 진행 완료
+                if progress_bar:
+                    progress_bar.progress(100)
+                    if 'info_container' in locals():
+                        info_container.success("카테고리 분류 완료!")
+                    else:
+                        st.success("카테고리 분류 완료!")
             
+            # 2단계: 북마크 저장 (카테고리 포함하여 저장)
             for bookmark in bookmarks:
                 try:
                     feed_id = bookmark.get('feed_id')
@@ -162,39 +186,69 @@ class BookmarkDatabase:
                         continue
                     
                     # 이미 존재하는지 확인
-                    cursor.execute("SELECT COUNT(*) FROM bookmarks WHERE feed_id = ?", (feed_id,))
-                    if cursor.fetchone()[0] > 0:
-                        # 이미 존재하면 스킵
+                    cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        # # 이미 존재하면 업데이트만 수행 (카테고리 정보 업데이트)
+                        # bookmark_id = existing[0]
+                        
+                        # # 카테고리 정보가 있으면 업데이트
+                        # if 'category' in bookmark:
+                        #     category = bookmark.get('category', '기타')
+                        #     category_reason = bookmark.get('category_reason', '')
+                            
+                        #     cursor.execute('''
+                        #     UPDATE bookmarks 
+                        #     SET category = ?, category_reason = ?
+                        #     WHERE id = ?
+                        #     ''', (category, category_reason, bookmark_id))
+                            
+                        #     # 카테고리 테이블에도 추가 (이미 있으면 무시)
+                        #     cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (category,))
+                        
+                        # self.logger.info(f"이미 존재하는 북마크 카테고리 업데이트: ID {bookmark_id}")
                         pass
                     else:
                         # 해시태그는 JSON으로 저장
-                        if 'hashtags' in bookmark and isinstance(bookmark['hashtags'], list):
-                            bookmark['hashtags'] = json.dumps(bookmark['hashtags'], ensure_ascii=False)
-                        # 새로 추가
+                        bookmark_copy = bookmark.copy()  # 원본 데이터 보존
+                        if 'hashtags' in bookmark_copy and isinstance(bookmark_copy['hashtags'], list):
+                            bookmark_copy['hashtags'] = json.dumps(bookmark_copy['hashtags'], ensure_ascii=False)
+                        
+                        # 카테고리 정보가 없으면 기본값 설정
+                        if 'category' not in bookmark_copy:
+                            bookmark_copy['category'] = "기타"
+                            bookmark_copy['category_reason'] = ""
+                        
+                        # 카테고리 테이블에 추가 (이미 있으면 무시)
+                        cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (bookmark_copy['category'],))
+                            
+                        # 새로 추가 (카테고리 포함)
                         cursor.execute('''
-                        INSERT INTO bookmarks (collection_id, feed_id, media_type, caption, media_url, thumbnail_url, url, hashtags)
-                        VALUES (:collection_id, :feed_id, :media_type, :caption, :media_url, :thumbnail_url, :url, :hashtags)
-                        ''', bookmark)
+                        INSERT INTO bookmarks (collection_id, feed_id, media_type, caption, media_url, thumbnail_url, url, hashtags, category, category_reason)
+                        VALUES (:collection_id, :feed_id, :media_type, :caption, :media_url, :thumbnail_url, :url, :hashtags, :category, :category_reason)
+                        ''', bookmark_copy)
                         
                         bookmark_id = cursor.lastrowid
-                        conn.commit()
                         self.logger.info(f"북마크 저장됨: ID {bookmark_id}")
                     
                     success_count += 1
                 except Exception as e:
-                    self.logger.error(f"북마크 일괄 추가 중 오류 발생: {e}")
+                    self.logger.error(f"북마크 저장 중 오류 발생: {e}")
                     fail_count += 1
-            
-            # 트랜잭션 커밋
-            conn.commit()
+                    continue  # 현재 북마크 처리에 실패해도 다음 북마크 계속 처리
+                
+                # 트랜잭션 커밋
+                conn.commit()
             
         except Exception as e:
-            conn.rollback()
+            if conn:
+                conn.rollback()
             self.logger.error(f"북마크 일괄 추가 실패: {e}")
             return (success_count, fail_count)
-        
         finally:
-            conn.close()
+            if conn:
+                conn.close()
         
         self.logger.info(f"북마크 {success_count}개 일괄 처리 완료 (실패: {fail_count}개)")
         return (success_count, fail_count)
@@ -351,153 +405,6 @@ class BookmarkDatabase:
         finally:
             conn.close()
 
-    # TODO def get_categories():
-    
-    # def save_setting(self, key: str, value: Any) -> bool:
-    #     """설정 값을 저장합니다.
-        
-    #     Args:
-    #         key: 설정 키
-    #         value: 설정 값
-            
-    #     Returns:
-    #         저장 성공 여부
-    #     """
-    #     conn = self._get_connection()
-    #     cursor = conn.cursor()
-        
-    #     # 객체는 JSON으로 변환
-    #     if not isinstance(value, (str, int, float, bool, type(None))):
-    #         value = json.dumps(value, ensure_ascii=False)
-    #     else:
-    #         value = str(value)
-        
-    #     try:
-    #         cursor.execute('''
-    #         INSERT INTO settings (key, value, updated_at)
-    #         VALUES (?, ?, CURRENT_TIMESTAMP)
-    #         ON CONFLICT(key) DO UPDATE SET
-    #         value = excluded.value,
-    #         updated_at = CURRENT_TIMESTAMP
-    #         ''', (key, value))
-            
-    #         conn.commit()
-    #         self.logger.info(f"설정 저장됨: {key}")
-    #         return True
-            
-    #     except sqlite3.Error as e:
-    #         conn.rollback()
-    #         self.logger.error(f"설정 저장 실패: {key}, {e}")
-    #         return False
-            
-    #     finally:
-    #         conn.close()
-    
-    # def get_setting(self, key: str, default: Any = None) -> Any:
-    #     """설정 값을 가져옵니다.
-        
-    #     Args:
-    #         key: 설정 키
-    #         default: 기본 반환 값
-            
-    #     Returns:
-    #         설정 값 또는 기본값
-    #     """
-    #     conn = self._get_connection()
-    #     cursor = conn.cursor()
-        
-    #     try:
-    #         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
-    #         result = cursor.fetchone()
-            
-    #         if result:
-    #             value = result[0]
-                
-    #             # JSON 형식인지 확인하여 파싱
-    #             if value and (value.startswith('{') or value.startswith('[')):
-    #                 try:
-    #                     return json.loads(value)
-    #                 except json.JSONDecodeError:
-    #                     pass
-                
-    #             return value
-            
-    #         return default
-            
-    #     except sqlite3.Error as e:
-    #         self.logger.error(f"설정 가져오기 실패: {key}, {e}")
-    #         return default
-            
-    #     finally:
-    #         conn.close()
-    
-    # def export_bookmarks_to_json(self, output_file: str) -> bool:
-    #     """북마크를 JSON 파일로 내보냅니다.
-        
-    #     Args:
-    #         output_file: 저장할 파일 경로
-            
-    #     Returns:
-    #         내보내기 성공 여부
-    #     """
-    #     try:
-    #         bookmarks = self.get_bookmarks(limit=10000)  # 충분히 큰 제한값
-            
-    #         with open(output_file, 'w', encoding='utf-8') as f:
-    #             json.dump(bookmarks, f, ensure_ascii=False, indent=4)
-                
-    #         self.logger.info(f"{len(bookmarks)}개 북마크를 {output_file}로 내보냈습니다.")
-    #         return True
-            
-    #     except Exception as e:
-    #         self.logger.error(f"북마크 내보내기 실패: {e}")
-    #         return False
-    
-    # def import_bookmarks_from_json(self, input_file: str) -> Tuple[int, int]:
-    #     """JSON 파일에서 북마크를 가져옵니다.
-        
-    #     Args:
-    #         input_file: 가져올 파일 경로
-            
-    #     Returns:
-    #         (성공한 항목 수, 실패한 항목 수) 튜플
-    #     """
-    #     if not os.path.exists(input_file):
-    #         self.logger.error(f"파일을 찾을 수 없음: {input_file}")
-    #         return (0, 0)
-            
-    #     try:
-    #         with open(input_file, 'r', encoding='utf-8') as f:
-    #             bookmarks = json.load(f)
-                
-    #         if not isinstance(bookmarks, list):
-    #             self.logger.error(f"유효하지 않은 북마크 데이터 형식: {input_file}")
-    #             return (0, 0)
-            
-    #         success_count = 0
-    #         fail_count = 0
-            
-    #         for bookmark in bookmarks:
-    #             # 기존 ID 필드 제거 (충돌 방지)
-    #             if 'id' in bookmark:
-    #                 del bookmark['id']
-                
-    #             # created_at 필드 제거 (DB에서 자동 생성)
-    #             if 'created_at' in bookmark:
-    #                 del bookmark['created_at']
-                
-    #             if self.add_bookmark(bookmark) > 0:
-    #                 success_count += 1
-    #             else:
-    #                 fail_count += 1
-                    
-    #         self.logger.info(f"북마크 가져오기 완료: {success_count}개 성공, {fail_count}개 실패")
-    #         return (success_count, fail_count)
-            
-    #     except Exception as e:
-    #         self.logger.error(f"북마크 가져오기 실패: {e}")
-    #         return (0, 0)
-
     def add_category(self, name: str) -> int:
         """새로운 카테고리를 추가합니다.
         
@@ -554,45 +461,6 @@ class BookmarkDatabase:
         finally:
             conn.close()
 
-    def add_bookmark_categories(self, bookmark_id: int, categories: List[str], category_reason: str, caption: str) -> bool:
-        """북마크에 카테고리를 연결합니다.
-        
-        Args:
-            bookmark_id: 북마크 ID
-            categories: 카테고리 이름 목록
-            category_reason: 카테고리 분류 이유
-            caption: 북마크 캡션
-            
-        Returns:
-            성공 여부
-        """
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            for category_name in categories:
-                # 카테고리 추가 또는 가져오기
-                category_id = self.add_category(category_name)
-                if category_id == -1:
-                    continue
-                
-                # 북마크-카테고리 연결
-                cursor.execute('''
-                INSERT INTO bookmark_categories (bookmark_id, category_id, caption, category_reason)
-                VALUES (?, ?, ?, ?)
-                ''', (bookmark_id, category_id, caption, category_reason))
-            
-            conn.commit()
-            return True
-            
-        except sqlite3.Error as e:
-            conn.rollback()
-            self.logger.error(f"북마크 카테고리 연결 실패: {e}")
-            return False
-            
-        finally:
-            conn.close()
-
     def get_bookmark_categories(self, bookmark_id: int) -> List[Dict[str, Any]]:
         """북마크의 카테고리 정보를 가져옵니다.
         
@@ -607,21 +475,19 @@ class BookmarkDatabase:
         
         try:
             cursor.execute('''
-            SELECT c.name, bc.caption, bc.category_reason
-            FROM categories c
-            JOIN bookmark_categories bc ON c.id = bc.category_id
-            WHERE bc.bookmark_id = ?
-            ORDER BY c.name
+            SELECT category, caption, category_reason
+            FROM bookmarks
+            WHERE id = ?
             ''', (bookmark_id,))
             
-            results = []
-            for row in cursor.fetchall():
-                results.append({
+            row = cursor.fetchone()
+            if row:
+                return [{
                     'name': row[0],
                     'caption': row[1],
                     'reason': row[2]
-                })
-            return results
+                }]
+            return []
             
         except sqlite3.Error as e:
             self.logger.error(f"북마크 카테고리 가져오기 실패: {e}")
@@ -644,12 +510,10 @@ class BookmarkDatabase:
         
         try:
             cursor.execute('''
-            SELECT b.*, bc.category_reason, bc.caption as category_caption
-            FROM bookmarks b
-            JOIN bookmark_categories bc ON b.id = bc.bookmark_id
-            JOIN categories c ON bc.category_id = c.id
-            WHERE c.name = ?
-            ORDER BY b.created_at DESC
+            SELECT *
+            FROM bookmarks
+            WHERE category = ?
+            ORDER BY created_at DESC
             ''', (category_name,))
             
             columns = [desc[0] for desc in cursor.description]
