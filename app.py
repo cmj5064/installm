@@ -3,14 +3,17 @@ import streamlit as st
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
-import os
+import base64
+from io import BytesIO
 import ssl
+import json
 
 # SSL 인증서 검증 비활성화
 ssl._create_default_https_context = ssl._create_unverified_context
 
 # 커스텀 모듈 import
 from agent.search import Search
+from ui.instagram import *
 from ui.bookmark_viewer import BookmarkViewer
 from utils.helpers import log_error
 from utils.instagram import InstagramClient
@@ -23,10 +26,22 @@ load_dotenv()
 
 # 페이지 설정
 st.set_page_config(
-    page_title="북마크 매니저",
-    page_icon="🔖",
+    page_title="인스타그램 북마크 매니저",
+    page_icon="📸",
     layout="wide",
 )
+
+# 쿼리 파라미터에서 세션 상태로 메뉴 상태 동기화
+def sync_session_state_from_query_params():
+    query_params = st.query_params
+    if "menu" in query_params:
+        current_menu = query_params.get("menu")
+        st.session_state.current_menu = current_menu
+    elif "current_menu" not in st.session_state:
+        st.session_state.current_menu = "북마크 추가"
+
+# # 앱 초기화 시 세션 상태 동기화
+# sync_session_state_from_query_params()
 
 @st.cache_resource
 def get_db(path):
@@ -51,28 +66,27 @@ DB_PATH = DATA_DIR / "bookmarks.db"
 # 데이터베이스 및 벡터 스토어 초기화
 db = get_db(str(DB_PATH))
 vector_store = get_vector_store(str(DB_PATH))
+# vector_store = "" # NOTE 위로 바꾸기
 categorize_agent = get_categorize_agent()
 
 # 카테고리 목록 가져오기
 categorize_agent.base_categories = db.get_all_categories()
 
-# 사이드바 메뉴 정의
-def sidebar_menu():
-    st.sidebar.title("북마크 매니저")
-    menu = st.sidebar.radio("메뉴", ["북마크 추가", "북마크 검색", "카테고리별 보기"])
-    return menu
+# # 사이드바 메뉴 정의
+# def sidebar_menu():
+#     # st.sidebar.title("북마크 매니저")
+#     menu = st.sidebar.radio("메뉴", ["북마크 추가", "북마크 검색", "카테고리별 보기"])
+#     return menu
 
 # 북마크 추가 폼
 def add_bookmark_form():
-    st.header("북마크 추가")
-
     # Instagram 로그인 정보를 세션 상태에서 확인
     if 'insta_logged_in' not in st.session_state:
         st.session_state.insta_logged_in = False
     
     # 로그인 영역
     if not st.session_state.insta_logged_in:
-        st.subheader("Instagram 로그인")
+        # st.subheader("Instagram 로그인")
         with st.form(key="instagram_login"):
             insta_id = st.text_input("Instagram 아이디")
             insta_pw = st.text_input("Instagram 비밀번호", type="password")
@@ -107,16 +121,13 @@ def add_bookmark_form():
     
         with st.form(key="bookmark_form"):
             url = st.text_input("URL", f"https://www.instagram.com/{st.session_state.insta_id}/saved/all-posts/")
-            bookmark_description = st.text_area("설명", "전체")
-            categories_input = st.text_input("카테고리 (쉼표로 구분)", "general")
+            bookmark_description = st.text_area("설명", "gulguleee27의 북마크")
             submit_button = st.form_submit_button(label="북마크 불러오기")
             
             if submit_button and url:
-                categories = [cat.strip() for cat in categories_input.split(",") if cat.strip()]
-                
                 # spinner로 로딩 표시
                 with st.spinner('Instagram에서 북마크를 불러오는 중...'):
-                    success, bookmarks = fetch_bookmarks(url, bookmark_description, categories)
+                    success, bookmarks = fetch_bookmarks(url, bookmark_description)
                 
                 if success and bookmarks:
                     st.session_state.fetched_bookmarks = bookmarks
@@ -166,7 +177,11 @@ def add_bookmark_form():
         if 'fetched_bookmarks' in st.session_state and 'db_saved' not in st.session_state:
             if st.button("DB에 북마크 저장"):
                 with st.spinner('북마크를 데이터베이스에 저장하는 중...'):
-                    success_count, fail_count = db.add_bookmark_batch(st.session_state.fetched_bookmarks)
+                    success_count, fail_count = db.add_bookmark_batch(
+                        st.session_state.fetched_bookmarks, 
+                        # categorize_agent=categorize_agent
+                        categorize_agent=None
+                    )
                 
                 if success_count > 0:
                     st.success(f"{success_count}개의 북마크가 DB에 저장되었습니다.")
@@ -217,7 +232,7 @@ def add_bookmark_form():
                 st.rerun()
 
 # 북마크 불러오기 함수 (저장하지 않고 데이터만 반환)
-def fetch_bookmarks(url, bookmark_description, categories):
+def fetch_bookmarks(url, bookmark_description):
     try:
         # 세션 상태에서 로그인 정보 가져오기
         insta_id = st.session_state.insta_id
@@ -227,84 +242,17 @@ def fetch_bookmarks(url, bookmark_description, categories):
         bookmark_data = client.get_saved_feed(collection_id="all-posts")  # list output
         
         # 불러온 데이터 반환 (저장은 하지 않음)
-        return True, bookmark_data[:50] # TODO hardcoded
+        # return True, bookmark_data[:50] # TODO hardcoded
+        return True, bookmark_data # TODO hardcoded # NOTE 위로 바꾸기
     
     except Exception as e:
         log_error(f"북마크 불러오기 중 오류: {e}")
         return False, None
 
-# 북마크 저장 함수
-def add_bookmark(url, bookmark_description, categories):
-    try:
-        client = InstagramClient(os.getenv("INSTA_ID"), os.getenv("INSTA_PW"))
-        bookmark_data = client.get_saved_feed(collection_id="all-posts") # list output
 
-        succes, fail = add_bookmarks_batch(bookmark_data[:50])
-        return True
-    
-    except Exception as e:
-        log_error(f"북마크 저장 중 오류: {e}")
-        return False
-    
-def add_bookmarks_batch(bookmarks: List[dict]) -> Tuple[int, int]:
-    """북마크 목록을 일괄적으로 추가합니다.
-    
-    Args:
-        bookmarks: 북마크 목록
-        
-    Returns:
-        (성공한 항목 수, 실패한 항목 수) 튜플
-    """
-    # 데이터베이스에 북마크 일괄 추가
-    success_count, fail_count = db.add_bookmark_batch(bookmarks)
-    
-    if success_count > 0:
-        # 성공한 북마크에 대해 카테고리 분류 및 연결
-        for bookmark in bookmarks:
-            if bookmark.get('feed_id'):
-                # 북마크 ID 가져오기
-                conn = db._get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (bookmark['feed_id'],))
-                result = cursor.fetchone()
-                conn.close()
-                
-                if result:
-                    bookmark_id = result[0]
-                    caption = bookmark.get('caption', '')
-                    
-                    # 카테고리 분류
-                    if not bookmark.get('categories'):
-                        response = categorize_agent.classify(
-                            caption=caption,
-                            hashtags=bookmark.get('hashtags', [])
-                        )
-                        bookmark['categories'] = response["categories"]
-                        bookmark['category_reason'] = response["category_reason"]
-                    
-                    # 카테고리 연결
-                    db.add_bookmark_categories(
-                        bookmark_id=bookmark_id,
-                        categories=bookmark['categories'],
-                        category_reason=bookmark['category_reason'],
-                        caption=caption
-                    )
-        
-        # 벡터 저장소에 성공한 북마크만 추가
-        successful_bookmarks = []
-        for bookmark in bookmarks:
-            if bookmark.get('feed_id') and bookmark.get('caption'):
-                successful_bookmarks.append(bookmark)
-        
-        if successful_bookmarks:
-            vector_store.add_bookmark_batch(successful_bookmarks)
-    
-    return (success_count, fail_count)
 
 # 북마크 검색 기능
 def search_bookmark():
-    st.header("북마크 검색")
-    
     search_type = st.radio("검색 유형", ["키워드 검색", "의미 검색", "다중 검색"])
     search_query = st.text_input("검색어를 입력하세요")
 
@@ -328,8 +276,6 @@ def search_bookmark():
 
 # 카테고리별 보기
 def view_by_category():
-    st.header("카테고리별 보기")
-    
     # 모든 카테고리 가져오기
     categories = db.get_all_categories()
     
@@ -354,10 +300,13 @@ def display_bookmarks(bookmarks):
         col1, col2 = st.columns([1, 3])
         
         with col1:
-            if bookmark.get("thumbnail_url"):
+            if bookmark.get("thumbnail"):
                 try:
-                    st.image(bookmark["thumbnail_url"], width=300)
-                except:
+                    # base64 데이터를 이미지로 변환
+                    image_data = base64.b64decode(bookmark["thumbnail"])
+                    image = BytesIO(image_data)
+                    st.image(image, width=300)
+                except Exception as e:
                     st.write("🔖")
             else:
                 st.write("🔖")
@@ -371,7 +320,8 @@ def display_bookmarks(bookmarks):
             if categories:
                 st.write("카테고리:")
                 for cat in categories:
-                    st.write(f"- #{cat['name']}: {cat['reason']}")
+                    # st.write(f"- #{cat['name']}: {cat['reason']}")
+                    st.write(f"- #{cat['name']}\n")
                     if cat['caption'] != bookmark.get('caption', ''):
                         st.write(f"  📝 카테고리 지정 당시 캡션: {cat['caption']}")
             
@@ -394,14 +344,38 @@ def display_bookmarks(bookmarks):
 
 # 메인 함수
 def main():    
-    menu = sidebar_menu()
+    # CSS 로드
+    load_css()
     
-    if menu == "북마크 추가":
+    # URL 쿼리 파라미터와 세션 상태 동기화 (새로고침 시 상태 유지)
+    sync_session_state_from_query_params()
+    
+    # 사이드바 메뉴 렌더링 - ui.instagram 모듈에서 가져옴
+    sidebar_menu()
+    # st.session_state.current_menu = sidebar()
+    
+    # 콘솔에 현재 메뉴 로깅 (디버깅용)
+    print(f"현재 메뉴: {st.session_state.current_menu}")
+    
+    # # 현재 선택된 메뉴 이름에 따라 제목 표시
+    # menu_titles = {
+    #     "랜딩 페이지": "Instagram 북마크 매니저",
+    #     "북마크 추가": "북마크 추가",
+    #     "북마크 검색": "북마크 검색",
+    #     "카테고리별 보기": "카테고리별 보기"
+    # }
+    
+    # st.markdown(f"<h2>{menu_titles.get(st.session_state.current_menu, '')}</h2>", unsafe_allow_html=True)
+    
+    # 현재 선택된 메뉴에 따라 콘텐츠 표시
+    if st.session_state.current_menu == "랜딩 페이지":
         add_bookmark_form()
-    elif menu == "북마크 검색":
+    elif st.session_state.current_menu == "북마크 추가":
+        add_bookmark_form()
+    elif st.session_state.current_menu == "북마크 검색":
         search_bookmark()
-    elif menu == "카테고리별 보기":
-        view_by_category()
+    # elif st.session_state.current_menu == "카테고리별 보기":
+    #     view_by_category()
 
 if __name__ == "__main__":
     main()

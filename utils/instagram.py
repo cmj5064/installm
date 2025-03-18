@@ -165,7 +165,7 @@ class InstagramClient:
                     filtered_posts.append(normalized_media)
             
             self.logger.info(f"저장된 포스트 {len(filtered_posts)}개를 가져왔습니다.")
-            self.logger.info(f"이 중 최근 50개의 포스트를 저장합니다.") # TODO 50개 hardcoding 수정
+            # self.logger.info(f"이 중 최근 50개의 포스트를 저장합니다.") # TODO 50개 hardcoding 수정
             return filtered_posts
             
         except Exception as e:
