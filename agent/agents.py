@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .prompts import FilteringPrompt, CategoryPrompt
 from dotenv import load_dotenv
 import os
@@ -12,7 +12,7 @@ llm = AzureChatOpenAI(
     azure_endpoint=os.getenv("AOAI_ENDPOINT"),
     azure_deployment=os.getenv("AOAI_DEPLOY_GPT4O_MINI"),
     api_version="2024-08-01-preview",
-    temperature=0.0,
+    temperature=0.5,
 )
 
 class CategorizeAgent:
@@ -22,50 +22,51 @@ class CategorizeAgent:
         self.llm = llm
         
         # 기본 카테고리 목록
-        self.base_categories = ["여행", "맛집", "개구리"] # TODO: 초기 세팅 혹은 db가 있는 경우 db에 존재하는 카테고리 list 받아오기
+        self.base_categories = [] # app.py 57 line
     
-    def _update_base_categories(self, new_categories: List[str]) -> None:
-        """새로운 카테고리를 기본 카테고리 목록에 추가합니다.
-        
-        Args:
-            new_categories: 추가할 새로운 카테고리 목록
-        """
-        for category in new_categories:
-            if category not in self.base_categories:
-                self.base_categories.append(category)
-                print(f"새로운 카테고리 추가됨: {category}")
-    
-    def classify(self, caption: str, hashtags: List[str]) -> CategoryPrompt.OutputFormat:
-        """게시물의 카테고리를 분류합니다.
-        
-        Args:
-            caption: 게시물 설명
-            hashtags: 해시태그 목록
+    def _update_base_categories(self, category: str) -> None:
+        """기본 카테고리 세트에 새 카테고리를 추가합니다."""
+        if not category:
+            return
             
-        Returns:
-            분류된 카테고리 정보
-        """
-        # CategoryPrompt 인스턴스 생성
-        prompt = CategoryPrompt(
-            caption=caption,
-            hashtags=hashtags,
-            base_categories=self.base_categories
-        )
-        
-        # 프롬프트 구성
-        chat_messages = [
-            ("system", prompt.get_system_prompt()),
-            ("human", prompt.get_user_prompt())
-        ]
+        if category not in self.base_categories:
+            self.base_categories.append(category)
+            print(f"새로운 카테고리 추가됨: {category}")
 
-        # LLM chain 생성
-        chain = chat_messages | self.llm | prompt.OutputFormat
-        response = chain.invoke()
-        
-        # 새로운 카테고리가 있다면 base_categories에 추가
-        self._update_base_categories([name for name in response["categories"] if name not in self.base_categories])
-        
-        return response
+    def classify(self, caption: str, hashtags: Optional[List[str]] = None) -> CategoryPrompt.OutputFormat:
+        """
+        인스타그램 캡션과 해시태그를 분석하여 카테고리를 분류합니다.
+        단일 카테고리를 string 형태로 반환합니다.
+        """
+        try:
+            prompt = CategoryPrompt(
+                caption=caption, 
+                hashtags=hashtags or [],
+                base_categories=self.base_categories
+            )
+            
+            chat_messages = [
+                {"role": "system", "content": prompt.get_system_prompt()},
+                {"role": "user", "content": prompt.get_user_prompt()}
+            ]
+            
+            response = self.llm.with_structured_output(
+                CategoryPrompt.OutputFormat
+            ).invoke(chat_messages)
+            
+            self._update_base_categories(response.categories)
+            
+            # 원본 Pydantic 객체 반환
+            return response
+            
+        except Exception as e:
+            print(f"카테고리 분류 중 예상치 못한 오류: {e}")
+            # 오류 발생 시 Pydantic 객체 직접 생성하여 반환
+            fallback_result = prompt.OutputFormat(
+                categories="기타",
+                category_reason=f"분류 오류: {str(e)}"
+            )
+            return fallback_result
     
     def classify_batch(self, bookmarks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """여러 북마크의 카테고리를 일괄 분류합니다.
@@ -81,9 +82,10 @@ class CategorizeAgent:
             hashtags = bookmark.get('hashtags', [])
             
             if caption or hashtags:
+                # classify 메서드가 반환하는 Pydantic 모델에서 속성 접근
                 response = self.classify(caption, hashtags)
-                bookmark['categories'] = response["categories"]
-                bookmark['category_reason'] = response["category_reason"]
+                bookmark['categories'] = response.categories
+                bookmark['category_reason'] = response.category_reason
         
         return bookmarks
 
@@ -96,7 +98,7 @@ class FilterAgent:
         """
         self.llm = llm
         
-    def filter(self, query: str, bookmarks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def filter(self, query: str, bookmarks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         LLM을 사용하여 검색어와 북마크 데이터를 처리합니다.
         
@@ -123,23 +125,25 @@ class FilterAgent:
         
         # 프롬프트 구성
         chat_messages = [
-            ("system", system_prompt),
-            ("human", user_prompt)
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ]
 
-        # # 구조화된 LLM 생성
-        # structured_llm = self.llm.with_structured_output(prompt.OutputFormat)
-        
-        # # LLM 호출 및 결과 저장
-        # response = structured_llm.invoke(chat_messages)
-
-        # LLM chain 생성성
-        chain = chat_messages | self.llm | prompt.OutputFormat
-
-        response = chain.invoke()
+        # LLM 호출 및 구조화된 출력 처리
+        response = self.llm.with_structured_output(prompt.OutputFormat).invoke(chat_messages)
 
         # 결과에서 북마크 인덱스 추출 (문자열 리스트에서 정수로 변환)
-        relevant_indices = [int(idx) for idx in response["bookmark_indexes"]]
+        try:
+            # 딕셔너리로 반환되는 경우
+            if isinstance(response, dict) and "bookmark_indexes" in response:
+                relevant_indices = [int(idx) for idx in response["bookmark_indexes"]]
+            # Pydantic 모델로 반환되는 경우
+            else:
+                relevant_indices = [int(idx) for idx in response.bookmark_indexes]
+        except AttributeError:
+            print("응답 형식이 예상과 다릅니다. 원본 북마크를 반환합니다.")
+            state["filtered_bookmarks"] = state["bookmarks"]
+            return state
         
         # 유효한 인덱스만 필터링 (범위 체크)
         valid_indices = [idx for idx in relevant_indices if 0 <= idx < len(state["bookmarks"])]
