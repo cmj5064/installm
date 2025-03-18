@@ -11,3 +11,5 @@ pandas
 plotly
 sentence-transformers
 instagram-private-api==1.6.0
+selenium
+streamlit-on-Hover-tabs
