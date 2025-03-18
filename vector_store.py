@@ -7,6 +7,7 @@ import sqlite3
 from langchain_openai import AzureOpenAIEmbeddings
 from dotenv import load_dotenv
 import streamlit as st
+import traceback
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -219,13 +220,20 @@ class VectorStore:
             
             # 검색 결과에서 북마크 ID 추출
             bookmark_ids = []
+            missing_indices = []
             for idx in indices[0]:
                 idx_int = int(idx)
                 bookmark_id = self.index_to_id.get(idx_int)
                 if bookmark_id:
                     bookmark_ids.append(bookmark_id)
                 else:
+                    missing_indices.append(idx_int)
                     print(f"경고: 인덱스 {idx_int}에 대한 북마크 ID를 찾을 수 없습니다")
+            
+            # 누락된 인덱스가 많을 경우 인덱스 재구축 권장
+            if missing_indices and len(missing_indices) > len(indices[0]) / 2:
+                print(f"경고: {len(missing_indices)}개의 인덱스가 매핑에 없습니다. 인덱스 재구축을 권장합니다.")
+                print("rebuild_index() 메서드를 실행하여 인덱스를 재구축하세요.")
             
             if not bookmark_ids:
                 print("유효한 북마크 ID를 찾을 수 없습니다")
@@ -279,6 +287,9 @@ class VectorStore:
                 if idx in self.index_to_id:
                     del self.index_to_id[idx]
                 
+                print(f"주의: 북마크 ID {bookmark_id}를 매핑에서 제거했지만, 벡터는 FAISS 인덱스에 남아있습니다.")
+                print("다수의 북마크를 삭제한 경우 rebuild_index()를 호출하는 것이 좋습니다.")
+                
                 # 인덱스 저장
                 self._save_index()
                 return True
@@ -290,28 +301,82 @@ class VectorStore:
     def rebuild_index(self):
         """인덱스 완전히 재구축 (대규모 삭제 후 필요할 수 있음)"""
         try:
+            print("FAISS 인덱스와 ID 매핑을 재구축합니다...")
             # 기존 북마크 데이터 가져오기
             bookmarks = []
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT feed_id, data FROM bookmarks")
+                cursor.execute("SELECT * FROM bookmarks")
+                columns = [desc[0] for desc in cursor.description]
+                
                 for row in cursor.fetchall():
-                    bookmark_id, data = row
-                    bookmark = json.loads(data)
+                    # 딕셔너리로 변환
+                    bookmark = dict(zip(columns, row))
+                    
+                    # 해시태그 JSON 파싱
+                    if bookmark.get('hashtags'):
+                        try:
+                            bookmark['hashtags'] = json.loads(bookmark['hashtags'])
+                        except json.JSONDecodeError:
+                            bookmark['hashtags'] = []
+                            
                     bookmarks.append(bookmark)
             
             # 새 인덱스 생성
-            # self.index = faiss.IndexFlatIP(self.dimension)
-            self.index = faiss.IndexFlatL2(self.dimension)
+            self.index = faiss.IndexFlatIP(self.dimension)  # 내적 유사도 사용
             self.id_to_index = {}
             self.index_to_id = {}
             
+            print(f"총 {len(bookmarks)}개의 북마크에 대해 새 인덱스를 생성합니다...")
+            
             # 모든 북마크 다시 추가
+            added_count = 0
             for bookmark in bookmarks:
                 if bookmark.get('caption'):
-                    self.add_bookmark(bookmark)
+                    bookmark_id = bookmark['feed_id']
+                    vector = self.embeddings.embed_query(bookmark['caption'])
+                    vector_np = np.array([vector]).astype('float32')
+                    
+                    # 새 벡터 추가
+                    self.index.add(vector_np)
+                    new_idx = self.index.ntotal - 1
+                    
+                    # 매핑 업데이트
+                    self.id_to_index[bookmark_id] = new_idx
+                    self.index_to_id[new_idx] = bookmark_id
+                    added_count += 1
             
+            # 인덱스 저장
+            self._save_index()
+            print(f"인덱스 재구축 완료: {added_count}개 북마크 벡터 추가됨")
             return True
         except Exception as e:
             print(f"인덱스 재구축 중 오류: {e}")
+            traceback.print_exc()  # 자세한 오류 추적
             return False
+            
+    def check_index_health(self):
+        """인덱스 상태 확인 및 진단"""
+        try:
+            total_vectors = self.index.ntotal
+            total_mappings = len(self.id_to_index)
+            
+            print(f"== FAISS 인덱스 상태 ==")
+            print(f"벡터 수: {total_vectors}")
+            print(f"ID 매핑 수: {total_mappings}")
+            
+            # 불일치 확인
+            if total_vectors != total_mappings:
+                print(f"경고: 벡터 수와 매핑 수가 일치하지 않습니다 ({total_vectors} vs {total_mappings})")
+                print("rebuild_index()를 실행하여 인덱스를 재구축하는 것을 권장합니다.")
+            else:
+                print("인덱스 상태가 양호합니다.")
+                
+            return {
+                "total_vectors": total_vectors,
+                "total_mappings": total_mappings,
+                "is_healthy": total_vectors == total_mappings
+            }
+        except Exception as e:
+            print(f"인덱스 상태 확인 중 오류: {e}")
+            return {"error": str(e)}
