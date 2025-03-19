@@ -126,7 +126,7 @@ class InstagramClient:
         # 로그인 만료 시간 출력
         cookie_expiry = self.client.cookie_jar.auth_expires
         expire_time = datetime.datetime.fromtimestamp(cookie_expiry).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.logger.info(f"인증 정보 만료: {expire_time}")
+        # self.logger.info(f"인증 정보 만료: {expire_time}")
     
     def get_saved_feed(self, collection_id: str = 'all-posts') -> List[Dict]:
         """사용자의 저장된 포스트를 가져옵니다.

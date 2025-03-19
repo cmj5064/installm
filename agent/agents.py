@@ -113,7 +113,8 @@ class FilterAgent:
         state = {
             "query": query,
             "bookmarks": bookmarks,
-            "filtered_bookmarks": None
+            "filtered_bookmarks": None,
+            "filter_reasons":None
         }
         
         # FilteringPrompt 인스턴스 생성
@@ -155,6 +156,7 @@ class FilterAgent:
         else:
             # 관련 있는 북마크만 필터링하여 반환
             state["filtered_bookmarks"] = [state["bookmarks"][idx] for idx in valid_indices]
+            state["filter_reasons"] = [r for r in response.filter_reasons]
     
         return state
     
@@ -173,7 +175,8 @@ class FilterAgent:
             # 필터링 단계
             state = self.filter(query, bookmarks)
             
-            return state["filtered_bookmarks"]
+            # return state["filtered_bookmarks"]
+            return state
             
         except Exception as e:
             print(f"필터링 과정에서 오류 발생: {e}")

@@ -47,7 +47,7 @@ class CategoryPrompt(AgentPrompt):
         #     "3. 기존 카테고리로는 도저히 분류하기 어려운 경우, 새로운 카테고리를 제안하세요\n"
         #     "4. 새로운 카테고리를 제안할 때는 기존 카테고리와 중복되지 않는 주제의 카테고리를 제안하세요"
         #     "5. 카테고리 이름은 명사 단어 하나로 지어주세요"
-        #     "6. 게시물 내용이 많지 않아 주제 파악이 어려운 경우 기타 카테고리로 분류해주세요"
+        # #     "6. 게시물 내용이 많지 않아 주제 파악이 어려운 경우 기타 카테고리로 분류해주세요"
         # )
         system_prompt = (
             """
@@ -60,8 +60,7 @@ class CategoryPrompt(AgentPrompt):
             3. If it is challenging to categorize under existing categories, propose a new category.
             4. When suggesting a new category, ensure it is a distinct topic that does not overlap with existing categories.
             5. Category names should consist of a single noun.
-            6. If the post lacks substantial caption making it hard to determine the theme, categorize it as 기타
-
+            
             # Steps
 
             1. Review the post's caption and hashtags.
@@ -77,7 +76,6 @@ class CategoryPrompt(AgentPrompt):
 
             - Aim for precision in category selection.
             - Avoid redundant or overlapping categories.
-            - Use 기타 for unclear themes due to limited caption.
             """
         )
         return system_prompt
@@ -106,6 +104,9 @@ class FilteringPrompt(AgentPrompt):
         bookmark_indexes: List[int] = Field(
             description="북마크 목록에서 사용자 쿼리와 관련 있는 북마크의 index 번호만 선택해서 list를 생성하세요. 예: [0, 1, 3, 5]"
         )
+        filter_reasons: List[str] = Field(
+            description="모든 북마크에 대해 각 북마크 별로 채택했는지 안했는지와 그 이유를 list로 서술하세요. 예: ['0 / X / 검색 쿼리와 관련없는 개구리와 관련된 게시물입니다.', '1 / O / 검색 쿼리와 관련있는 여행에 대한 게시물입니다.']"
+        )
     
     def __init__(
         self, query, bookmarks
@@ -131,13 +132,11 @@ class FilteringPrompt(AgentPrompt):
 
             - Evaluate if the caption, url of the bookmark are semantically related to the search query.
             - Check if the hashtags of the bookmark match the topics or concepts of the search query.
-            - Judge whether the bookmark provides useful information regarding the search query.
 
             # Steps
 
             1. Analyze the caption and URL of each bookmark to evaluate their semantic relevance to the search query.
             2. Analyze the hashtags of each bookmark to determine if they match the topics or concepts of the search query.
-            3. Review whether the bookmark provides useful information related to the search query.
 
             # Output Format
 
