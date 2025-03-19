@@ -1,56 +1,56 @@
 import streamlit as st
 from st_on_hover_tabs import on_hover_tabs
 
-def sidebar():
-    with st.sidebar:
-        # tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
-        #                     iconName=['home', 'bookmark', 'search'],
-        #                     styles = {'navtab': {'background-color':'#000',
-        #                                         'color': '#ffffff',
-        #                                         'font-size': '10px',
-        #                                         'transition': '.3s',
-        #                                         'white-space': 'nowrap',
-        #                                         'text-transform': 'uppercase'},
-        #                             'tabStyle': {':hover :hover': {'color': 'red',
-        #                                                             'cursor': 'pointer'}},
-        #                             'tabStyle' : {'list-style-type': 'none',
-        #                                             'margin-bottom': '30px',
-        #                                             'padding-left': '30px'},
-        #                             'iconStyle':{'position':'fixed',
-        #                                             'left':'7.5px',
-        #                                             'text-align': 'left'},
-        #                             },
-        #                     key="0")
-        tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
-                            iconName=['home', 'bookmark', 'search'],
-                            styles = {
-                                'navtab': {
-                                    'background-color': '#000',
-                                    'color': '#ffffff',
-                                    'font-size': '10px',
-                                    'transition': '.3s',
-                                    'white-space': 'nowrap',
-                                    'text-transform': 'uppercase'
-                                },
-                                'tabStyle': {
-                                    'list-style-type': 'none',
-                                    'margin-bottom': '30px',
-                                    'padding-left': '30px'
-                                },
-                                'hoverTabStyle': {
-                                    'color': 'yellow',
-                                    'cursor': 'pointer'
-                                },
-                                'iconStyle': {
-                                    'position': 'fixed',
-                                    'left': '7.5px',
-                                    'text-align': 'left'
-                                }
-                            },
-                            key="0")
-        # tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
-        #                     iconName=['home', 'bookmark', 'search'], default_choice=0)
-    return tabs
+# def sidebar():
+#     with st.sidebar:
+#         # tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
+#         #                     iconName=['home', 'bookmark', 'search'],
+#         #                     styles = {'navtab': {'background-color':'#000',
+#         #                                         'color': '#ffffff',
+#         #                                         'font-size': '10px',
+#         #                                         'transition': '.3s',
+#         #                                         'white-space': 'nowrap',
+#         #                                         'text-transform': 'uppercase'},
+#         #                             'tabStyle': {':hover :hover': {'color': 'red',
+#         #                                                             'cursor': 'pointer'}},
+#         #                             'tabStyle' : {'list-style-type': 'none',
+#         #                                             'margin-bottom': '30px',
+#         #                                             'padding-left': '30px'},
+#         #                             'iconStyle':{'position':'fixed',
+#         #                                             'left':'7.5px',
+#         #                                             'text-align': 'left'},
+#         #                             },
+#         #                     key="0")
+#         tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
+#                             iconName=['home', 'bookmark', 'search'],
+#                             styles = {
+#                                 'navtab': {
+#                                     'background-color': '#000',
+#                                     'color': '#ffffff',
+#                                     'font-size': '10px',
+#                                     'transition': '.3s',
+#                                     'white-space': 'nowrap',
+#                                     'text-transform': 'uppercase'
+#                                 },
+#                                 'tabStyle': {
+#                                     'list-style-type': 'none',
+#                                     'margin-bottom': '30px',
+#                                     'padding-left': '30px'
+#                                 },
+#                                 'hoverTabStyle': {
+#                                     'color': 'yellow',
+#                                     'cursor': 'pointer'
+#                                 },
+#                                 'iconStyle': {
+#                                     'position': 'fixed',
+#                                     'left': '7.5px',
+#                                     'text-align': 'left'
+#                                 }
+#                             },
+#                             key="0")
+#         # tabs = on_hover_tabs(tabName=['랜딩 페이지', '북마크 추가', '북마크 검색'], 
+#         #                     iconName=['home', 'bookmark', 'search'], default_choice=0)
+#     return tabs
 
 # 인스타그램 스타일 CSS 추가
 def load_css():
@@ -280,45 +280,7 @@ def load_css():
     </style>
     """, unsafe_allow_html=True)
 
-# 사이드바 메뉴 정의
-def sidebar_menu():
-    # Font Awesome 아이콘 CSS 추가 및 세션 상태 초기화
-    st.sidebar.markdown("""
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    """, unsafe_allow_html=True)
-    
-    if "current_menu" not in st.session_state:
-        st.session_state.current_menu = "북마크 추가"
-    
-    # 현재 선택된 메뉴 확인 (세션 상태 사용)
-    current_menu = st.session_state.current_menu
-    
-    # 아이콘 활성화 상태 설정
-    home_active = "active" if current_menu == "랜딩 페이지" else ""
-    bookmark_active = "active" if current_menu == "북마크 추가" else ""
-    search_active = "active" if current_menu == "북마크 검색" else ""
-    
-    # 직접 Streamlit 버튼 생성 (메뉴 항목마다 하나의 버튼)
-    st.sidebar.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-
-    # 홈 버튼
-    if st.sidebar.button("🏠", key="btn_home"):
-        st.session_state.current_menu = "랜딩 페이지"
-        st.query_params.menu = "랜딩 페이지"
-        st.rerun()
-    
-    # 북마크 버튼
-    if st.sidebar.button("🔖", key="btn_bookmark"):
-        st.session_state.current_menu = "북마크 추가"
-        st.query_params.menu = "북마크 추가"
-        st.rerun()
-    
-    # 검색 버튼
-    if st.sidebar.button("🔍", key="btn_search"):
-        st.session_state.current_menu = "북마크 검색"
-        st.query_params.menu = "북마크 검색"
-        st.rerun()
-    
+def load_sidebar_css():
     # 간소화된 사이드바 스타일 설정
     sidebar_css = """
     <style>
@@ -338,33 +300,33 @@ def sidebar_menu():
         padding-right: 0.5rem;
     }
     
-    /* 버튼 스타일링 */
-    .stButton button {
-        width: 46px;
-        height: 46px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: white;
-        border: none;
-        margin: 10px auto;
-        font-size: 22px;
-        padding: 0;
+    /* 사이드바 버튼 스타일링 */
+    div.stSidebar div.stButton > button {
+        width: 46px !important;
+        height: 46px !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: white !important;
+        border: none !important;
+        margin: 10px auto !important;
+        font-size: 22px !important;
+        padding: 0 !important;
         transition: all 0.2s;
         /* 이모지를 흑백으로 변경하는 필터 추가 */
-        filter: grayscale(80%);
+        filter: grayscale(80%) !important;
     }
 
-    .stButton button:hover {
+    div.stSidebar div.stButton > button:hover {
         background-color: #f8f8f8;
         transform: scale(1.1);
         /* 호버 시 컬러로 변경 (선택 사항) */
         filter: grayscale(0%);
     }
     
-    /* 현재 메뉴 강조 */
-    .stButton button[kind="secondary"] {
+    /* 사이드바 현재 메뉴 강조 */
+    div.stSidebar div.stButton button[kind="secondary"] {
         color: #0095f6;
     }
     
@@ -386,6 +348,9 @@ def sidebar_menu():
     </style>
     """
     
+    # 현재 선택된 메뉴 확인 (세션 상태 사용)
+    current_menu = st.session_state.current_menu
+
     # 활성 메뉴 표시를 위한 JavaScript
     active_menu_js = f"""
     <script>
@@ -395,11 +360,11 @@ def sidebar_menu():
         let activeButton = null;
         
         if (currentMenu === "랜딩 페이지") {{
-            activeButton = document.querySelector('[data-testid="stSidebar"] button[key="btn_home"]');
+            activeButton = document.querySelector('[data-testid="stSidebar"] div.stButton > button[key="btn_home"]');
         }} else if (currentMenu === "북마크 추가") {{
-            activeButton = document.querySelector('[data-testid="stSidebar"] button[key="btn_bookmark"]');
+            activeButton = document.querySelector('[data-testid="stSidebar"] div.stButton > button[key="btn_bookmark"]');
         }} else if (currentMenu === "북마크 검색") {{
-            activeButton = document.querySelector('[data-testid="stSidebar"] button[key="btn_search"]');
+            activeButton = document.querySelector('[data-testid="stSidebar"] div.stButton > button[key="btn_search"]');
         }}
         
         if (activeButton) {{
@@ -411,5 +376,64 @@ def sidebar_menu():
     """
     
     # CSS와 JavaScript 적용
-    st.markdown(sidebar_css, unsafe_allow_html=True)
-    st.markdown(active_menu_js, unsafe_allow_html=True)
+    st.sidebar.markdown(sidebar_css, unsafe_allow_html=True)
+    st.sidebar.markdown(active_menu_js, unsafe_allow_html=True)
+
+# 사이드바 메뉴 정의
+def sidebar_menu():
+    # Font Awesome 아이콘 CSS 추가 및 세션 상태 초기화
+    st.sidebar.markdown("""
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    """, unsafe_allow_html=True)
+    
+    if "current_menu" not in st.session_state:
+        st.session_state.current_menu = "북마크 추가"
+    
+    # 현재 선택된 메뉴 확인 (세션 상태 사용)
+    current_menu = st.session_state.current_menu
+    
+    # 아이콘 활성화 상태 설정
+    home_active = "active" if current_menu == "랜딩 페이지" else ""
+    bookmark_active = "active" if current_menu == "북마크 추가" else ""
+    search_active = "active" if current_menu == "북마크 검색" else ""
+
+    # 직접 Streamlit 버튼 생성 (메뉴 항목마다 하나의 버튼)
+    st.sidebar.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+
+    # 홈 버튼
+    if st.sidebar.button("🏠", key="btn_home"):
+        st.session_state.current_menu = "랜딩 페이지"
+        st.query_params.menu = "랜딩 페이지"
+        st.rerun()
+    
+    # 북마크 버튼
+    if st.sidebar.button("🔖", key="btn_bookmark"):
+        st.session_state.current_menu = "북마크 추가"
+        st.query_params.menu = "북마크 추가"
+        st.rerun()
+    
+    # 검색 버튼
+    if st.sidebar.button("🔍", key="btn_search"):
+        st.session_state.current_menu = "북마크 검색"
+        st.query_params.menu = "북마크 검색"
+        # if 'search_input' in st.session_state:
+        #     st.session_state.search_input = ""
+        st.session_state.search_input = ""
+        st.rerun()
+
+# 쿼리 파라미터에서 세션 상태로 메뉴 상태 동기화
+def sync_session_state_from_query_params():
+    query_params = st.query_params
+    if "menu" in query_params:
+        current_menu = query_params.get("menu")
+        st.session_state.current_menu = current_menu
+    elif "current_menu" not in st.session_state:
+        st.session_state.current_menu = "랜딩 페이지"
+
+def setup_page():
+    # URL 쿼리 파라미터와 세션 상태 동기화 (새로고침 시 상태 유지)
+    sync_session_state_from_query_params()
+
+    # CSS 로드
+    # load_css()
+    load_sidebar_css()
