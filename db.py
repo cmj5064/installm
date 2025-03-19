@@ -84,6 +84,27 @@ class BookmarkDatabase:
             SQLite 데이터베이스 연결 객체
         """
         return sqlite3.connect(self.db_path)
+    
+    def _check_bookmark_exists(self, cursor, feed_id: str) -> Optional[int]:
+        """북마크가 이미 데이터베이스에 존재하는지 확인합니다.
+        
+        Args:
+            cursor: 데이터베이스 커서
+            feed_id: 확인할 피드 ID
+            
+        Returns:
+            북마크가 존재하면 해당 ID 반환, 없으면 None 반환
+        """
+        if not feed_id:
+            self.logger.warning("feed_id가 없는, 확인 불가능한 북마크")
+            return None
+            
+        cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            return existing[0] # bookmark_id: int
+        return None
 
     def add_bookmark_batch(self, bookmarks: List[dict], categorize_agent=None) -> Tuple[int, int]:
         """북마크 목록을 일괄적으로 추가하고 자동으로 카테고리를 분류합니다.
@@ -126,10 +147,12 @@ class BookmarkDatabase:
                     if not feed_id:
                         self.logger.warning("feed_id가 없는 북마크는 카테고리 생성 건너뜀")
                         continue
-                    cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
-                    existing = cursor.fetchone()
+                    # cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+                    # existing = cursor.fetchone()
                     
-                    if not existing:
+                    # if not existing:
+                    bookmark_id = self._check_bookmark_exists(cursor, feed_id)
+                    if not bookmark_id:
                         try:
                             caption = bookmark.get('caption', '')
                             
@@ -185,11 +208,13 @@ class BookmarkDatabase:
                         fail_count += 1
                         continue
                     
-                    # 이미 존재하는지 확인
-                    cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
-                    existing = cursor.fetchone()
+                    # # 이미 존재하는지 확인
+                    # cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+                    # existing = cursor.fetchone()
                     
-                    if existing:
+                    # if existing:
+                    bookmark_id = self._check_bookmark_exists(cursor, feed_id)
+                    if bookmark_id:
                         # # 이미 존재하면 업데이트만 수행 (카테고리 정보 업데이트)
                         # bookmark_id = existing[0]
                         
@@ -253,6 +278,170 @@ class BookmarkDatabase:
         self.logger.info(f"북마크 {success_count}개 일괄 처리 완료 (실패: {fail_count}개)")
         return (success_count, fail_count)
     
+    def categorize_bookmark_batch(self, bookmarks: List[dict], categorize_agent) -> Tuple[int, int]:
+        """북마크 목록을 일괄적으로 카테고리를 분류합니다.
+        
+        Args:
+            bookmarks: 북마크 목록
+            categorize_agent: 카테고리 분류 에이전트
+            
+        Returns:
+            (성공한 항목 수, 실패한 항목 수) 튜플
+        """
+        if not bookmarks:
+            return (0, 0)
+        
+        success_count = 0
+        fail_count = 0
+
+        conn = self._get_connection()
+        try:
+            # 트랜잭션 시작
+            conn.execute('BEGIN IMMEDIATE')  # 명시적으로 락을 획득하여 충돌 방지
+            cursor = conn.cursor()
+
+            # 1단계: 카테고리 분류 (북마크 저장 전 수행)
+            if categorize_agent:
+                # Streamlit UI가 있는 경우 진행 상황 표시
+                progress_bar = None
+                if 'st' in globals() and hasattr(st, 'progress'):
+                    # 빈 컨테이너 생성
+                    info_container = st.empty()
+                    info_container.info("카테고리 자동 분류 중...")
+                    progress_bar = st.progress(0)
+                
+                total_items = len(bookmarks)
+                
+                # 각 북마크별로 카테고리 분류
+                for i, bookmark in enumerate(bookmarks):
+                    # 기존에 저장된 feed인지 확인
+                    feed_id = bookmark.get('feed_id')
+                    if not feed_id:
+                        self.logger.warning("feed_id가 없는 북마크는 카테고리 생성 건너뜀")
+                        continue
+                    # cursor.execute("SELECT id FROM bookmarks WHERE feed_id = ?", (feed_id,))
+                    # existing = cursor.fetchone()
+                    
+                    # if not existing:
+                    bookmark_id = self._check_bookmark_exists(cursor, feed_id)
+                    if bookmark_id:
+                        try:
+                            caption = bookmark.get('caption', '')
+                            
+                            # 해시태그가 JSON 문자열로 저장되어 있으면 다시 파싱
+                            hashtags = bookmark.get('hashtags', [])
+                            if isinstance(hashtags, str):
+                                try:
+                                    hashtags = json.loads(hashtags)
+                                except:
+                                    hashtags = []
+                            
+                            # 카테고리 분류
+                            try:
+                                response = categorize_agent.classify(
+                                    caption=caption,
+                                    hashtags=hashtags
+                                )
+                                bookmark['category'] = response.categories
+                                bookmark['category_reason'] = response.category_reason
+                                # 기존 st.info 대신 info_container 업데이트
+                                if 'st' in globals() and hasattr(st, 'info') and 'info_container' in locals():
+                                    info_container.info(f"카테고리 자동 분류 중...: {bookmark['category']}")
+                            except Exception as e:
+                                self.logger.error(f"북마크 카테고리 분류 중 오류: {str(e)}")
+                                if 'st' in globals() and hasattr(st, 'warning'):
+                                    st.warning(f"북마크 카테고리 분류 중 오류: {str(e)}")
+                                bookmark['category'] = "기타"
+                                bookmark['category_reason'] = f"카테고리 분류 중 오류 발생: {str(e)}"
+                        
+                        except Exception as e:
+                            self.logger.error(f"북마크 처리 중 오류: {str(e)}")
+                            bookmark['category'] = "기타"
+                            bookmark['category_reason'] = f"처리 중 오류: {str(e)}"
+                    
+                    # 진행상황 업데이트
+                    if progress_bar:
+                        progress_bar.progress((i + 1) / total_items)
+                
+                # 진행 완료
+                if progress_bar:
+                    progress_bar.progress(100)
+                    if 'info_container' in locals():
+                        info_container.success("카테고리 분류 완료!")
+                    else:
+                        st.success("카테고리 분류 완료!")
+            
+            # 2단계: 북마크 저장 (카테고리 포함하여 저장)
+            for bookmark in bookmarks:
+                try:
+                    feed_id = bookmark.get('feed_id')
+                    if not feed_id:
+                        self.logger.warning("feed_id가 없는 북마크 건너뜀")
+                        fail_count += 1
+                        continue
+                    
+                    bookmark_id = self._check_bookmark_exists(cursor, feed_id)
+                    if bookmark_id:
+                        # 이미 존재하면 업데이트만 수행 (카테고리 정보 업데이트)
+                        if 'category' in bookmark:
+                            category = bookmark.get('category', '기타')
+                            category_reason = bookmark.get('category_reason', '')
+                            
+                            cursor.execute('''
+                            UPDATE bookmarks 
+                            SET category = ?, category_reason = ?
+                            WHERE id = ?
+                            ''', (category, category_reason, bookmark_id))
+                            
+                            # 카테고리 테이블에도 추가 (이미 있으면 무시)
+                            cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (category,))
+                        
+                        self.logger.info(f"이미 존재하는 북마크 카테고리 업데이트: ID {bookmark_id}")
+                        pass
+                    else:
+                        # 해시태그는 JSON으로 저장
+                        bookmark_copy = bookmark.copy()  # 원본 데이터 보존
+                        if 'hashtags' in bookmark_copy and isinstance(bookmark_copy['hashtags'], list):
+                            bookmark_copy['hashtags'] = json.dumps(bookmark_copy['hashtags'], ensure_ascii=False)
+                        
+                        # 카테고리 정보가 없으면 기본값 설정
+                        if 'category' not in bookmark_copy:
+                            bookmark_copy['category'] = "기타"
+                            bookmark_copy['category_reason'] = ""
+                        
+                        # 카테고리 테이블에 추가 (이미 있으면 무시)
+                        cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (bookmark_copy['category'],))
+                            
+                        # 새로 추가 (카테고리 포함)
+                        cursor.execute('''
+                        INSERT INTO bookmarks (collection_id, feed_id, media_type, caption, media_url, thumbnail_url, url, hashtags, category, category_reason)
+                        VALUES (:collection_id, :feed_id, :media_type, :caption, :media_url, :thumbnail_url, :url, :hashtags, :category, :category_reason)
+                        ''', bookmark_copy)
+                        
+                        bookmark_id = cursor.lastrowid
+                        self.logger.info(f"북마크 저장됨: ID {bookmark_id}")
+                    
+                    success_count += 1
+                except Exception as e:
+                    self.logger.error(f"북마크 저장 중 오류 발생: {e}")
+                    fail_count += 1
+                    continue  # 현재 북마크 처리에 실패해도 다음 북마크 계속 처리
+                
+                # 트랜잭션 커밋
+                conn.commit()
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            self.logger.error(f"북마크 일괄 추가 실패: {e}")
+            return (success_count, fail_count)
+        finally:
+            if conn:
+                conn.close()
+        
+        self.logger.info(f"북마크 {success_count}개 일괄 처리 완료 (실패: {fail_count}개)")
+        return (success_count, fail_count)
+
     def get_bookmarks(self, collection_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """북마크 목록을 가져옵니다.
         
