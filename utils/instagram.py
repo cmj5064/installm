@@ -6,6 +6,8 @@ import datetime
 from typing import Dict, List, Optional
 import re
 import requests
+from dotenv import load_dotenv
+import json
 
 try:
     from instagram_private_api import (
@@ -26,6 +28,10 @@ except ImportError:
         ClientLoginRequiredError,
     )
 
+import instagrapi
+
+
+load_dotenv()
 
 class InstagramClient:
     """인스타그램 API 클라이언트 클래스"""
@@ -538,3 +544,138 @@ class InstagramClient:
         """클라이언트 연결을 종료합니다."""
         if self.client:
             self.logger.info("인스타그램 클라이언트 연결 종료")
+
+
+def instagrapi_normalize_media_info(media_info: Dict) -> Dict:
+    """인스타그램 미디어 정보를 표준화합니다.
+    
+    Args:
+        media_info: 원본 미디어 정보
+        
+    Returns:
+        표준화된 미디어 정보
+    """
+    media_types = {
+        1: "image",
+        2: "video",
+        8: "album"
+    }
+    
+    normalized = {
+        'collection_id': media_info.get('saved_collections_id', ''),
+        'feed_id': media_info.get('id', ''),
+        'media_type': media_types[media_info.get("media_type", "")],
+        # 'caption': (media_info.get("caption") or {}).get("text", ""),
+        'caption': media_info.get("caption_text", ""),  # NOTE private api랑 형식 다름 주의
+        'media_url': '',
+        'thumbnail_url': '',
+        'url': f"https://www.instagram.com/p/{media_info.get('code', '')}/",
+    }
+    
+    # 미디어 URL 처리 (미디어 타입에 따라)
+    if media_info.get('media_type') == 1:  # Image
+        if 'image_versions2' in media_info and 'candidates' in media_info['image_versions2']:
+            candidates = media_info['image_versions2']['candidates']
+            if candidates:
+                normalized['media_url'] = candidates[0].get('url', '')
+                normalized['thumbnail_url'] = candidates[-1].get('url', '') if len(candidates) > 1 else candidates[0].get('url', '')
+    
+    elif media_info.get('media_type') == 2:  # Video
+        if 'video_versions' in media_info:
+            videos = media_info['video_versions']
+            if videos:
+                normalized['media_url'] = videos[0].get('url', '')
+        
+        # 썸네일 URL
+        if 'image_versions2' in media_info and 'candidates' in media_info['image_versions2']:
+            candidates = media_info['image_versions2']['candidates']
+            if candidates:
+                normalized['thumbnail_url'] = candidates[0].get('url', '')
+    
+    elif media_info.get('media_type') == 8:  # Album
+        if 'carousel_media' in media_info:
+            # 첫 번째 미디어 아이템으로 대표 URL 설정
+            carousel = media_info['carousel_media']
+            if carousel:
+                first_item = carousel[0]
+                if first_item.get('media_type') == 1:  # Photo
+                    if 'image_versions2' in first_item and 'candidates' in first_item['image_versions2']:
+                        candidates = first_item['image_versions2']['candidates']
+                        if candidates:
+                            normalized['media_url'] = candidates[0].get('url', '')
+                            normalized['thumbnail_url'] = candidates[-1].get('url', '') if len(candidates) > 1 else candidates[0].get('url', '')
+                elif first_item.get('media_type') == 2:  # Video
+                    if 'video_versions' in first_item:
+                        videos = first_item['video_versions']
+                        if videos:
+                            normalized['media_url'] = videos[0].get('url', '')
+                    
+                    # 썸네일 URL
+                    if 'image_versions2' in first_item and 'candidates' in first_item['image_versions2']:
+                        candidates = first_item['image_versions2']['candidates']
+                        if candidates:
+                            normalized['thumbnail_url'] = candidates[0].get('url', '')
+            
+            # 캐러셀 아이템 목록 추가
+            carousel_items = []
+            for item in carousel:
+                item_info = {
+                    'media_type': item.get('media_type', 1),
+                    'media_type_name': media_types.get(item.get('media_type', 1), "image"),
+                }
+                
+                if item.get('media_type') == 1:  # Photo
+                    if 'image_versions2' in item and 'candidates' in item['image_versions2']:
+                        candidates = item['image_versions2']['candidates']
+                        if candidates:
+                            item_info['url'] = candidates[0].get('url', '')
+                elif item.get('media_type') == 2:  # Video
+                    if 'video_versions' in item:
+                        videos = item['video_versions']
+                        if videos:
+                            item_info['url'] = videos[0].get('url', '')
+                
+                carousel_items.append(item_info)
+            
+            normalized['carousel_media'] = carousel_items
+
+    hashtags = re.findall(r'#(\w+)', normalized['caption'])
+    normalized['hashtags'] = hashtags
+    
+    return normalized
+
+
+def get_recent_feeds(hashtag):
+    recent_feeds = []
+
+    ## NOTE 사내망에서 사용 불가
+    # cl = instagrapi.Client()
+    # cl.login(os.getenv("INSTA_ID"), os.getenv("INSTA_PW"))
+
+    # js = []
+    # medias = cl.hashtag_medias_top(hashtag, amount=50)
+    # for i, m in enumerate(medias):
+    #     o = instagrapi_normalize_media_info(medias[i].dict())
+    #     # print(f"{i}: {o}")
+    #     js.append(o)
+
+    # # JSON 파일로 저장
+    # with open(f'./data/{hashtag}.json', 'w', encoding='utf-8') as f:
+    #     json.dump(js, f, ensure_ascii=False, indent=4)
+    ## NOTE 따로 저장해온 json load
+
+    # JSON 파일에서 데이터 로드
+    try:
+        with open(f'./data/{hashtag}.json', 'r', encoding='utf-8') as f:
+            loaded_data = json.load(f) # List[dict]
+            # print(f"loaded_data: {loaded_data}")
+            return loaded_data
+    
+    except Exception as e:
+        print(f"JSON 파일 로드 중 오류 발생: {e}")
+        recent_feeds = []
+        return recent_feeds
+    
+
+if __name__ == "__main__":
+    get_recent_feeds("여행")
