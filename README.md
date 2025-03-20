@@ -4,10 +4,11 @@ installm/
 ├── app.py - main script to run service
 ├── db.py
 ├── ui/ - streamlit ui
-│   ├── bookmark_viewer.py
-│   ├── category_viewer.py
-│   ├── dashboard.py
-│   └── search.py
+│   ├── landing_page.py
+│   ├── add_bookmark_page.py
+│   ├── search_page.py
+│   ├── recommend_page.py
+│   └── instagram.py
 ├── utils/ - small utility functions
 │   ├── helpers.py
 │   └── instagram.py

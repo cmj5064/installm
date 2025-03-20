@@ -7,6 +7,9 @@ __pycache__/
 # dotenv
 .env
 
+# streamlit config
+.streamlit
+
 # input data, saved log
 data/
 *.log

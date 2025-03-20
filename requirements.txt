@@ -16,4 +16,3 @@ streamlit-on-Hover-tabs
 hydralit_components
 numpy==1.26.2 # hc 적용 위함이고 기존 버전은 2.2.3
 st-annotated-text
-instaloader
