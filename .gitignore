@@ -16,5 +16,6 @@ data/
 
 # no use
 utils/get_img.py
+utils/get_thumb_from_ids.py
 test_api.py
 api.py
