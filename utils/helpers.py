@@ -10,6 +10,19 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any
 import datetime
+import streamlit as st
+
+def change_menu(menu_name):
+    """
+    버튼으로 page nav callback
+    """
+    st.session_state["current_menu"] = menu_name
+
+def initialize():
+    """
+    session_state 초기화 callback
+    """
+    st.session_state = {}
 
 # 로깅 설정
 logger = logging.basicConfig(

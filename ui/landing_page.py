@@ -1,7 +1,9 @@
 import streamlit as st
 from utils.instagram import InstagramClient
-from utils.helpers import log_error
+from ui.instagram import *
+from utils.helpers import *
 
+# @st.fragment
 def render_landing_page(db, vector_store, debug):
     """인스타그램 로그인 및 북마크 로드 페이지"""
     # 간소화된 사이드바 스타일 설정
@@ -33,20 +35,13 @@ def render_landing_page(db, vector_store, debug):
     # """
 
     # st.markdown(langding_page_css, unsafe_allow_html=True)
-
-    if debug:
-        st.write(f"페이지: {st.session_state.current_menu}, 세션 ID: {st.session_state.get('session_id', '없음')}")
-        st.write(f"DB 저장 상태: {st.session_state.get('db_saved', False)}")
-        st.write(f"VS 저장 상태: {st.session_state.get('vector_saved', False)}")
-
-    # st.header("Instagram 북마크 매니저")
     
     # Instagram 로그인 정보를 세션 상태에서 확인
     if 'insta_logged_in' not in st.session_state:
-        st.session_state.insta_logged_in = False
+        st.session_state["insta_logged_in"] = False
     
     # 로그인 영역
-    if not st.session_state.insta_logged_in:
+    if not st.session_state["insta_logged_in"]:
         with st.form(key="instagram_login"):
             insta_id = st.text_input("Instagram 아이디")
             insta_pw = st.text_input("Instagram 비밀번호", type="password")
@@ -55,9 +50,9 @@ def render_landing_page(db, vector_store, debug):
             if login_button:
                 if insta_id and insta_pw:
                     # 로그인 정보를 세션 상태에 저장
-                    st.session_state.insta_id = insta_id
-                    st.session_state.insta_pw = insta_pw
-                    st.session_state.insta_logged_in = True
+                    st.session_state["insta_id"] = insta_id
+                    st.session_state["insta_pw"] = insta_pw
+                    st.session_state["insta_logged_in"] = True
                     
                     # 성공 메시지 표시
                     st.success("로그인 정보가 저장되었습니다. 이제 북마크를 추가할 수 있습니다.")
@@ -72,17 +67,17 @@ def render_landing_page(db, vector_store, debug):
         if st.button("로그아웃"):
             # 세션 상태에서 로그인 정보 제거
             if 'insta_id' in st.session_state:
-                del st.session_state.insta_id
+                del st.session_state["insta_id"]
             if 'insta_pw' in st.session_state:
-                del st.session_state.insta_pw
-            st.session_state.insta_logged_in = False
+                del st.session_state["insta_pw"]
+            st.session_state["insta_logged_in"] = False
             st.rerun()
 
         if 'fetched_bookmarks' not in st.session_state:
 
             with st.form(key="bookmark_form"):
-                url = st.text_input("URL", f"https://www.instagram.com/{st.session_state.insta_id}/saved/all-posts/")
-                bookmark_description = st.text_area("설명", f"{st.session_state.insta_id}의 북마크")
+                url = st.text_input("URL", f"https://www.instagram.com/{st.session_state["insta_id"]}/saved/all-posts/")
+                bookmark_description = st.text_area("설명", f"{st.session_state["insta_id"]}의 북마크")
                 submit_button = st.form_submit_button(label="북마크 불러오기")
                 
             if submit_button and url:
@@ -91,7 +86,7 @@ def render_landing_page(db, vector_store, debug):
                     success, bookmarks = fetch_bookmarks(url, bookmark_description)
                 
                 if success and bookmarks:
-                    st.session_state.fetched_bookmarks = bookmarks
+                    st.session_state["fetched_bookmarks"] = bookmarks
                     st.success(f"{len(bookmarks)}개의 북마크를 불러왔습니다!")
                     
                     # 북마크 상태 정보 표시
@@ -105,6 +100,7 @@ def render_landing_page(db, vector_store, debug):
                         bookmark_id = db._check_bookmark_exists(cursor, feed_id)
                         if not bookmark_id:
                             new_ids.append(feed_id)
+                            print(f"'{feed_id}'', '{bookmark.get('thumbnail_url')}'")
 
                     conn.commit()
                     conn.close()
@@ -146,35 +142,31 @@ def render_landing_page(db, vector_store, debug):
 
                     if new_ids:
                         st.info(f"새로운 북마크가 {len(new_ids)}개 추가 되었습니다!")
-                        st.session_state.fetched_bookmarks = new_ids # 신규 북마크만 추가하도록 갱신
+                        st.session_state["fetched_bookmarks"] = new_ids # 신규 북마크만 추가하도록 갱신
 
-                        # 북마크 추가 페이지로 이동 버튼
-                        if st.button("신규 북마크 저장"):
-                            st.session_state.current_menu = "북마크 추가"
-                            st.query_params.menu = "북마크 추가"
-                            st.rerun()
+                        col1, col2, _ = st.columns([0.1, 0.3, 0.5])
+
+                        with col1:
+                            st.button("신규 북마크 저장", on_click=change_menu, args=("북마크 추가",))
                         
+                        with col2:
+                            st.button("(주의) 스킵 후 검색", on_click=change_menu, args=("북마크 검색",))
+                    
                     else: # 중복되는 id만 있는 경우
-                        st.session_state.db_saved = True
-                        if st.button("북마크 검색"):
-                            st.session_state.current_menu = "북마크 검색"
-                            st.query_params.menu = "북마크 검색"
-                            st.rerun()
+                        st.session_state["db_saved"] = True
+                        st.button("북마크 검색", on_click=change_menu, args=("북마크 검색",))
                     
                 else:
                     st.error("북마크를 불러오는 중 오류가 발생했습니다.")
         else:
-            if st.button("북마크 검색"):
-                st.session_state.current_menu = "북마크 검색"
-                st.query_params.menu = "북마크 검색"
-                st.rerun()
+            st.button("북마크 검색", on_click=change_menu, args=("북마크 검색",))
 
 # 북마크 불러오기 함수 (저장하지 않고 데이터만 반환)
 def fetch_bookmarks(url, bookmark_description):
     try:
         # 세션 상태에서 로그인 정보 가져오기
-        insta_id = st.session_state.insta_id
-        insta_pw = st.session_state.insta_pw
+        insta_id = st.session_state["insta_id"]
+        insta_pw = st.session_state["insta_pw"]
         
         client = InstagramClient(insta_id, insta_pw)
         bookmark_data = client.get_saved_feed(collection_id="all-posts")  # list output

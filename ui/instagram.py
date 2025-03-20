@@ -1,5 +1,6 @@
 import streamlit as st
 from st_on_hover_tabs import on_hover_tabs
+from utils.helpers import *
 
 # def sidebar():
 #     with st.sidebar:
@@ -349,7 +350,7 @@ def load_sidebar_css():
     """
     
     # 현재 선택된 메뉴 확인 (세션 상태 사용)
-    current_menu = st.session_state.current_menu
+    current_menu = st.session_state["current_menu"]
 
     # 활성 메뉴 표시를 위한 JavaScript
     active_menu_js = f"""
@@ -386,11 +387,8 @@ def sidebar_menu():
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     """, unsafe_allow_html=True)
     
-    if "current_menu" not in st.session_state:
-        st.session_state.current_menu = "북마크 추가"
-    
     # 현재 선택된 메뉴 확인 (세션 상태 사용)
-    current_menu = st.session_state.current_menu
+    current_menu = st.session_state["current_menu"]
     
     # 아이콘 활성화 상태 설정
     home_active = "active" if current_menu == "랜딩 페이지" else ""
@@ -401,39 +399,32 @@ def sidebar_menu():
     st.sidebar.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
     # 홈 버튼
-    if st.sidebar.button("🏠", key="btn_home"):
-        st.session_state.current_menu = "랜딩 페이지"
-        st.query_params.menu = "랜딩 페이지"
-        st.rerun()
+    st.sidebar.button("🏠", on_click=change_menu, args=("랜딩 페이지",))
     
     # 북마크 버튼
-    if st.sidebar.button("🔖", key="btn_bookmark"):
-        st.session_state.current_menu = "북마크 추가"
-        st.query_params.menu = "북마크 추가"
-        st.rerun()
+    st.sidebar.button("🔖", on_click=change_menu, args=("북마크 추가",))
     
     # 검색 버튼
     if st.sidebar.button("🔍", key="btn_search"):
-        st.session_state.current_menu = "북마크 검색"
-        st.query_params.menu = "북마크 검색"
+        st.session_state["current_menu"] = "북마크 검색"
+        # st.query_params.menu = "북마크 검색"
         # if 'search_input' in st.session_state:
         #     st.session_state.search_input = ""
-        st.session_state.search_input = ""
+        st.session_state["search_input"] = ""
         st.rerun()
+
+    # 추천 버튼
+    st.sidebar.button("👍", on_click=change_menu, args=("추천 페이지",))
+    
 
 # 쿼리 파라미터에서 세션 상태로 메뉴 상태 동기화
 def sync_session_state_from_query_params():
     query_params = st.query_params
     if "menu" in query_params:
         current_menu = query_params.get("menu")
-        st.session_state.current_menu = current_menu
-    elif "current_menu" not in st.session_state:
-        st.session_state.current_menu = "랜딩 페이지"
+        st.session_state["current_menu"] = current_menu
 
 def setup_page():
-    # URL 쿼리 파라미터와 세션 상태 동기화 (새로고침 시 상태 유지)
-    sync_session_state_from_query_params()
-
     # CSS 로드
     # load_css()
     load_sidebar_css()

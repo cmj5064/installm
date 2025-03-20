@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 from annotated_text import annotated_text
 
+from utils.helpers import *
 from agent.search import Search
 # from ui.bookmark_viewer import BookmarkViewer
 
@@ -17,12 +18,12 @@ category_color = {  # TODO 몇몇 카태고리 annotation 색 지정
 def render_search_page(db, vector_store, debug):
     if debug:
         search_type = st.radio("검색 유형", ["키워드 검색", "의미 검색", "다중 검색", "total"])
-    if 'search_input' not in st.session_state or st.session_state.search_input == "":
-        # st.session_state.search_input = st.text_input("검색어를 입력하세요")
-        # st.session_state.search_input = st.text_input("검색어를 입력하세요", key="search_input", label_visibility="collapsed")
-        st.session_state.search_input = st.text_input("검색어를 입력하세요")
+    if 'search_input' not in st.session_state or st.session_state["search_input"] == "":
+        # st.session_state["search_input"] = st.text_input("검색어를 입력하세요")
+        # st.session_state["search_input"] = st.text_input("검색어를 입력하세요", key="search_input", label_visibility="collapsed")
+        st.session_state["search_input"] = st.text_input("검색어를 입력하세요")
     else:
-        st.text_input("검색어를 입력하세요", value=st.session_state.search_input)
+        st.text_input("검색어를 입력하세요", value=st.session_state["search_input"])
 
     # # Add custom CSS for button styling
     # st.markdown("""
@@ -49,38 +50,41 @@ def render_search_page(db, vector_store, debug):
     ]
 
     # Create dynamic buttons based on example queries
-    if 'search_input' not in st.session_state or st.session_state.search_input == "":
+    if 'search_input' not in st.session_state or st.session_state["search_input"] == "":
         # cols = st.columns(len(example_queries))
         # for i, query in enumerate(example_queries):
         #     with cols[i]:
         #         if st.button(query):
-        #             st.session_state.search_input = query
+        #             st.session_state["search_input"] = query
         #             st.rerun()
         for i, query in enumerate(example_queries):
             if st.button(query):
-                st.session_state.search_input = query
+                st.session_state["search_input"] = query
                 st.rerun()
 
     search = Search(db, vector_store)
     
-    if st.session_state.search_input and st.session_state.search_input != "":
+    if st.session_state["search_input"] and st.session_state["search_input"] != "":
         if debug:
             if search_type == "키워드 검색":
-                bookmarks = search.keyword_search(st.session_state.search_input)
+                bookmarks = search.keyword_search(st.session_state["search_input"])
             elif search_type == "의미 검색":
-                bookmarks = search.semantic_search(st.session_state.search_input)
+                bookmarks = search.semantic_search(st.session_state["search_input"])
             elif search_type == "다중 검색":
-                bookmarks = search.multi_search(st.session_state.search_input)
+                bookmarks = search.multi_search(st.session_state["search_input"])
             elif search_type == "total":
-                bookmarks = search.multi_search(st.session_state.search_input)
+                bookmarks = search.multi_search(st.session_state["search_input"])
         else:
-            # bookmarks = search.multi_search(st.session_state.search_input)
-            bookmarks = search.total_search(st.session_state.search_input)
+            # bookmarks = search.multi_search(st.session_state["search_input"])
+            bookmarks = search.total_search(st.session_state["search_input"])
+        
+        st.session_state["search_output"] = bookmarks
 
         if bookmarks:
             display_bookmarks(bookmarks, db, vector_store)
-            # viewer = BookmarkViewer(db)
-            # viewer.display_bookmarks(bookmarks=bookmarks)
+
+            st.info("검색 결과를 기반으로 트렌드 게시물을 추천해드릴게요! 🐸")
+            st.sidebar.button("추천 페이지로 이동", on_click=change_menu, args=("추천 페이지",))
 
         else:
             st.info("검색 결과가 없습니다.")
