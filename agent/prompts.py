@@ -196,3 +196,106 @@ class FilteringPrompt(AgentPrompt):
         )
         
         return user_prompt
+
+
+class RecommendPrompt(AgentPrompt):
+    """
+    추천 에이전트를 위한 프롬프트
+    """
+    class OutputFormat(BaseModel):
+        """
+        추천 에이전트의 출력을 파싱하는 클래스
+        """
+        feed_indexes: List[int] = Field(
+            description="최신 게시물 목록에서 사용자 쿼리와 관련 있는 게시물을 최대 5개까지 뽑아 게시물의 index 번호만 선택해서 list를 생성하세요. 예: [0, 1, 3, 5]"
+        )
+        recommend_reasons: List[str] = Field(
+            description="채택한 게시물의 인덱스와 추천 이유를 list로 서술하세요. 예: ['0 / 사용자의 여행 관련 과거 히스토리와 일치하며 검색어 여행과 직접적으로 관련된 삿포로와 관련된 내용입니다', ...]"
+        )
+    
+    def __init__(
+        self, query, user_history, feeds
+    ) -> None:
+        self.query = query
+        self.user_history = user_history
+        self.feeds = feeds
+
+    def get_system_prompt(self) -> str:
+        system_prompt = (
+            """
+            당신은 사용자 맞춤형 콘텐츠 추천 전문가입니다. 제공된 컨텍스트(사용자 히스토리와 최신 게시물)를 활용하여 현재 검색 쿼리에 가장 관련성 높은 게시물을 최대 5개까지 추천해주세요.
+
+            # 컨텍스트 활용 방법
+            1. 사용자 히스토리: 사용자의 취향을 파악하세요
+            2. 쿼리 관련 최신 게시물: 사용자에게 추천할 최대 5개의 게시물을 이 게시물들 중 선발합니다
+            3. 두 정보를 종합하여 사용자에게 가장 적합한 게시물을 최대 5개까지 식별하세요
+
+            # 추천 프로세스
+            1. 제공된 사용자 히스토리에서 사용자의 취향 파악
+            2. 검색 쿼리와 게시물 내용 간의 의미적 연관성 평가
+            3. 사용자 과거 행동과 현재 관심사를 종합적으로 고려한 최적의 추천 제공
+            4. 각 게시물별 추천 이유 상세 설명 (사용자 히스토리 연관성 포함)
+
+            # 출력 형식
+            - feed_indexes: 쿼리 관련 최신 게시물들 중 추천하는 게시물의 인덱스 번호 목록 (예시: [0, 1, 3, 5]) 리스트 최대 길이 5
+            - recommend_reasons: 추천 게시물 인덱스와 추천 이유 설명
+            예: ['0 / 사용자의 여행 관련 과거 히스토리와 일치하며 검색어 여행과 직접적으로 관련된 삿포로와 관련된 내용입니다', 
+                ...]
+            """
+        )
+        # system_prompt = (
+        #     """
+
+        #     """
+        # )
+        return system_prompt
+
+    def get_user_prompt(self) -> str:
+        """
+        사용자 프롬프트를 생성합니다.
+        
+        Args:
+            query: 검색어
+            bookmarks: 북마크 목록
+        
+        Returns:
+            str: 사용자 프롬프트
+        """
+        query = self.query
+        user_history = self.user_history
+        feeds = self.feeds
+
+        # 사용자 히스토리 포맷팅 # TODO
+        history_text = "### 검색 히스토리:\n"
+        if user_history and len(user_history) > 0:
+            for i, h in enumerate(user_history):
+                history_text += f"{i}: {h.get('caption', '')}, {h.get('hashtags', '')}\n"
+                # if 'timestamp' in h:
+                #     history_text += f"  (시간: {h.get('timestamp', '')})\n"
+        else:
+            history_text += "- 이용 가능한 사용자 히스토리가 없습니다.\n"
+        
+        # 게시물 목록 포맷팅
+        feed_infos = []
+        for i, f in enumerate(feeds):
+            feed_infos.append(
+                f"""
+                {i}: \n
+                caption: {f.get('caption', '')}\n
+                hashtags: {f.get('hashtags')}
+                """
+            )
+        
+        formatted_feeds = "\n\n".join(feed_infos)
+        
+        user_prompt = (
+            f"### 검색어: {query}\n\n"
+            f"{history_text}\n\n"
+            f"### 추천 후보 게시물 목록:\n\n"
+            f"{formatted_feeds}\n\n"
+            f"위 정보를 기반으로 추천 후보 게시물 중 사용자에게 가장 관련성 높은 게시물 최대 5개를 추천해주세요. 다음 형식으로 응답해주세요:\n"
+            f"1. feed_indexes: [추천할 게시물 인덱스 번호들] (길이 5 이하의 list)\n"
+            f"2. recommend_reasons: [추천한 게시물 인덱스와 추천 이유]"
+        )
+        
+        return user_prompt

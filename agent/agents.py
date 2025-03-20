@@ -1,8 +1,9 @@
 from typing import List, Dict, Any, Optional
-from .prompts import FilteringPrompt, CategoryPrompt
+from .prompts import FilteringPrompt, CategoryPrompt, RecommendPrompt
 from dotenv import load_dotenv
 import os
 from langchain_openai import AzureChatOpenAI
+# from langchain.callbacks.tracers.langsmith import LangSmithTracer
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -148,7 +149,7 @@ class FilterAgent:
         
         # 유효한 인덱스만 필터링 (범위 체크)
         valid_indices = [idx for idx in relevant_indices if 0 <= idx < len(state["bookmarks"])]
-        
+
         # 인덱스가 비어있으면 원본 반환
         if not valid_indices:
             print("필터링 결과가 없습니다. 원본 북마크를 반환합니다.")
@@ -181,3 +182,112 @@ class FilterAgent:
         except Exception as e:
             print(f"필터링 과정에서 오류 발생: {e}")
             return bookmarks
+        
+class RecommendAgent:
+    """
+    유저 쿼리와 관련된 최신 글 추천을 위한 에이전트
+    (RAG를 명시적으로 사용하는 에이전트!)
+    """
+    
+    def __init__(self):
+        """
+        추천 에이전트 초기화
+        """
+        self.llm = llm
+        # # 트레이서 초기화 (프로젝트 이름은 원하는 대로 설정)
+        # self.tracer = LangSmithTracer(
+        #     project_name=os.getenv("LANGCHAIN_PROJECT", "InstaLLM")
+        # )
+        
+    def recommend(self, query: str, user_history, feeds: List[Dict[str, Any]]) -> RecommendPrompt.OutputFormat:
+        """
+        LLM을 사용하여 검색어와 북마크 데이터를 처리합니다.
+        
+        Args:
+            query: 검색어
+            bookmarks: 필터링할 북마크 리스트
+            
+        Returns:
+            필터링 결과가 추가된 상태 정보
+        """
+        # 상태 정보를 딕셔너리 형태로 관리
+        state = {
+            "query": query,
+            "user_history": user_history,
+            "feeds": feeds,
+            "recommended_feeds": None,
+            "recommend_reasons":None
+        }
+        
+        prompt = RecommendPrompt(query=query, user_history=user_history, feeds=feeds)
+        
+        # 시스템 프롬프트와 사용자 프롬프트 가져오기
+        system_prompt = prompt.get_system_prompt()
+        user_prompt = prompt.get_user_prompt()
+        
+        # 프롬프트 구성
+        chat_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        # LLM 호출 및 구조화된 출력 처리
+        response = self.llm.with_structured_output(prompt.OutputFormat).invoke(chat_messages)
+        # # LLM 호출에 트레이서 추가
+        # response = self.llm.with_structured_output(
+        #     prompt.OutputFormat
+        # ).with_callbacks(
+        #     [self.tracer]  # 트레이서 추가
+        # ).invoke(chat_messages)
+
+        # 결과에서 북마크 인덱스 추출 (문자열 리스트에서 정수로 변환)
+        try:
+            # 딕셔너리로 반환되는 경우
+            if isinstance(response, dict) and "feed_indexes" in response:
+                relevant_indices = [int(idx) for idx in response["feed_indexes"]]
+            # Pydantic 모델로 반환되는 경우
+            else:
+                relevant_indices = [int(idx) for idx in response.feed_indexes]
+            relevant_indices.sort()
+        except AttributeError:
+            print("응답 형식이 예상과 다릅니다. 원본 북마크를 반환합니다.")
+            print(response)
+            state["recommended_feeds"] = state["feeds"]
+            return state
+        
+        # 유효한 인덱스만 필터링 (범위 체크)
+        valid_indices = [idx for idx in relevant_indices if 0 <= idx < len(state["feeds"])]
+        print(f"Agent가 뽑은 relevant_indices: {relevant_indices}")
+        # breakpoint()
+
+        # 인덱스가 비어있으면 원본 반환
+        if not valid_indices:
+            print("추천 결과가 없습니다. 원본 게시물들을 반환합니다.")
+            state["recommended_feeds"] = state["feeds"]
+        else:
+            # 관련 있는 게시물만 필터링하여 반환
+            state["recommended_feeds"] = [state["feeds"][idx] for idx in valid_indices]
+            state["recommend_reasons"] = [r for r in response.recommend_reasons]
+    
+        return state
+    
+    def run(self, query: str, user_history, feeds: List[Dict[str, Any]]):
+        """
+        검색어와 관련 있는 북마크만 필터링하여 반환합니다.
+        
+        Args:
+            query: 검색어
+            feeds: 필터링할 게시물 리스트
+            
+        Returns:
+            필터링된 게시물 리스트
+        """
+        try:
+            # 필터링 단계
+            state = self.recommend(query, user_history, feeds)
+            
+            return state # NOTE 출력 받고 나서 state["recommended_feeds"] 반드시 수행할 것 까먹지 말기
+            
+        except Exception as e:
+            print(f"필터링 과정에서 오류 발생: {e}")
+            return None
