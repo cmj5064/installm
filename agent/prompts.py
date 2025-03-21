@@ -236,6 +236,10 @@ class RecommendPrompt(AgentPrompt):
             3. 사용자 과거 행동과 현재 관심사를 종합적으로 고려한 최적의 추천 제공
             4. 각 게시물별 추천 이유 상세 설명 (사용자 히스토리 연관성 포함)
 
+            # 주의할 점
+            1. 추천 게시물을 절대 사용자 히스토리에서 선정해선 안됩니다.
+            2. 추천할 때는 꼭 사용자 히스토리로부터 파악한 사용자 취향을 바탕으로 해주세요. 추천 이유에 이 내용이 반영되어야 합니다.
+
             # 출력 형식
             - feed_indexes: 쿼리 관련 최신 게시물들 중 추천하는 게시물의 인덱스 번호 목록 (예시: [0, 1, 3, 5]) 리스트 최대 길이 5
             - recommend_reasons: 추천 게시물 인덱스와 추천 이유 설명
@@ -266,10 +270,11 @@ class RecommendPrompt(AgentPrompt):
         feeds = self.feeds
 
         # 사용자 히스토리 포맷팅 # TODO
-        history_text = "### 검색 히스토리:\n"
+        history_text = "### 사용자 히스토리:\n"
         if user_history and len(user_history) > 0:
             for i, h in enumerate(user_history):
-                history_text += f"{i}: {h.get('caption', '')}, {h.get('hashtags', '')}\n"
+                history_text += f"{h.get('caption', '')}, {h.get('hashtags', '')}\n"
+                history_text += "==================================================\n"
                 # if 'timestamp' in h:
                 #     history_text += f"  (시간: {h.get('timestamp', '')})\n"
         else:

@@ -247,8 +247,7 @@ class RecommendAgent:
                 relevant_indices = [int(idx) for idx in response["feed_indexes"]]
             # Pydantic 모델로 반환되는 경우
             else:
-                relevant_indices = [int(idx) for idx in response.feed_indexes]
-            relevant_indices.sort()
+                relevant_indices = [int(idx) for idx in response.feed_indexes] # 이거 sort하면 reasons랑 꼬인다 할거면 같이 하셈
         except AttributeError:
             print("응답 형식이 예상과 다릅니다. 원본 북마크를 반환합니다.")
             print(response)

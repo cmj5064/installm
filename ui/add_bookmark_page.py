@@ -19,10 +19,10 @@ def render_add_bookmark_page(db, vector_store, categorize_agent, debug):
     
     # 북마크 처리 현황 표시
     # TODO vector_store 내 feed_id 체크...? 가능?
-    vs_index = "./data/faiss_index/bookmark_vectors.index"
-    vs_mapping = "./data/faiss_index/id_mapping.json"
-    if os.path.exists(vs_index) and os.path.exists(vs_mapping):
-        st.session_state["vector_saved"] = True
+    # vs_index = "./data/faiss_index/bookmark_vectors.index"
+    # vs_mapping = "./data/faiss_index/id_mapping.json"
+    # if os.path.exists(vs_index) and os.path.exists(vs_mapping):
+    #     st.session_state["vector_saved"] = True
 
     # db 및 vector store 저장 현황 표시
     with st.expander("DB 및 Vector Store 저장 현황"):
@@ -32,36 +32,41 @@ def render_add_bookmark_page(db, vector_store, categorize_agent, debug):
         """)
         # st.checkbox("DB", value=False, disabled=True)
     
+    col1, col2, _ = st.columns([0.1, 0.15, 0.75])
+    
     # 북마크가 불러와졌고 DB에 저장되지 않은 경우에만 DB 저장 버튼 표시
     if 'db_saved' not in st.session_state:
-        if st.button("북마크 DB 저장", key="save_to_db"):
-            with st.spinner('북마크를 데이터베이스에 저장하는 중...'):
-                success_count, fail_count = db.add_bookmark_batch(
-                    st.session_state["fetched_bookmarks"],
-                    categorize_agent=None
-                )
-            
-            if success_count > 0:
-                st.success(f"{success_count}개의 북마크가 DB에 저장되었습니다.")
-                # DB 저장이 성공하면 성공한 북마크만 필터링해서 session state에 저장
-                successful_bookmarks = []
-                for bookmark in st.session_state["fetched_bookmarks"]:
-                    if bookmark.get('feed_id') and bookmark.get('caption'):
-                        successful_bookmarks.append(bookmark)
+        with col1:
+            if st.button("북마크 DB 저장", key="save_to_db"):
+                # print(f"************{st.session_state["fetched_bookmarks"]}")
+                with st.spinner('북마크를 데이터베이스에 저장하는 중...'):
+                    success_count, fail_count = db.add_bookmark_batch(
+                        st.session_state["fetched_bookmarks"],
+                        categorize_agent=None
+                    )
                 
-                st.session_state["db_saved"] = True
-                st.session_state["successful_bookmarks"] = successful_bookmarks
-                
-                if fail_count > 0:
-                    st.warning(f"{fail_count}개의 북마크는 저장에 실패했습니다.")
+                if success_count > 0:
+                    st.success(f"{success_count}개의 북마크가 DB에 저장되었습니다.")
+                    # DB 저장이 성공하면 성공한 북마크만 필터링해서 session state에 저장
+                    successful_bookmarks = []
+                    for bookmark in st.session_state["fetched_bookmarks"]:
+                        if bookmark.get('feed_id') and bookmark.get('caption'):
+                            successful_bookmarks.append(bookmark)
                     
-                # 다음 단계 안내
-                st.info("⬇️ 이제 벡터 스토어에 북마크를 저장해보세요.")
-                st.rerun()  # 상태 표시 업데이트를 위한 리로드
-            else:
-                st.error("북마크 저장에 실패했습니다.")
+                    st.session_state["db_saved"] = True
+                    st.session_state["successful_bookmarks"] = successful_bookmarks
+                    
+                    if fail_count > 0:
+                        st.warning(f"{fail_count}개의 북마크는 저장에 실패했습니다.")
+                        
+                    # 다음 단계 안내
+                    st.info("⬇️ 이제 벡터 스토어에 북마크를 저장해보세요.")
+                    st.rerun()  # 상태 표시 업데이트를 위한 리로드
+                else:
+                    st.error("북마크 저장에 실패했습니다.")
 
-    if debug: # NOTE 전체 북마크의 카테고리 업데이트는 debug에서만 수행
+    with col2:
+        # if debug: # NOTE 전체 북마크의 카테고리 업데이트는 debug에서만 수행
         if st.button("북마크 카테고리 분류", key="save_category_to_db"):
             with st.spinner('북마크의 카테고리를 분류하여 데이터베이스에 저장하는 중...'):
                 success_count, fail_count = db.categorize_bookmark_batch(

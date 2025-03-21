@@ -79,6 +79,11 @@ def render_landing_page(db, vector_store, debug):
                 url = st.text_input("URL", f"https://www.instagram.com/{st.session_state["insta_id"]}/saved/all-posts/")
                 bookmark_description = st.text_area("설명", f"{st.session_state["insta_id"]}의 북마크")
                 submit_button = st.form_submit_button(label="북마크 불러오기")
+            
+            if st.button("(주의) 북마크 로드 스킵"):
+                st.session_state["fetched_bookmarks"] = []
+                st.session_state["current_menu"] = "북마크 추가"
+                st.rerun()
                 
             if submit_button and url:
                 # spinner로 로딩 표시
@@ -142,7 +147,7 @@ def render_landing_page(db, vector_store, debug):
 
                     if new_ids:
                         st.info(f"새로운 북마크가 {len(new_ids)}개 추가 되었습니다!")
-                        st.session_state["fetched_bookmarks"] = new_ids # 신규 북마크만 추가하도록 갱신
+                        st.session_state["fetched_bookmarks"] = [bookmark for bookmark in bookmarks if bookmark.get('feed_id') in new_ids] # 신규 북마크만 추가하도록 갱신
 
                         col1, col2, _ = st.columns([0.1, 0.3, 0.5])
 

@@ -84,7 +84,7 @@ def render_search_page(db, vector_store, debug):
             display_bookmarks(bookmarks, db, vector_store)
 
             st.info("검색 결과를 기반으로 트렌드 게시물을 추천해드릴게요! 🐸")
-            st.sidebar.button("추천 페이지로 이동", on_click=change_menu, args=("추천 페이지",))
+            st.button("추천 페이지로 이동", on_click=change_menu, args=("추천 페이지",))
 
         else:
             st.info("검색 결과가 없습니다.")
@@ -125,8 +125,9 @@ def display_bookmarks(bookmarks, db, vector_store):
                 st.write(f"tags: {tags}")
             
             # 날짜 표시
-            created_at = datetime.fromisoformat(bookmark["created_at"])
-            st.caption(f"저장일: {created_at.strftime('%Y-%m-%d %H:%M')}")
+            # created_at = datetime.fromisoformat(bookmark["created_at"])
+            # st.caption(f"저장일: {created_at.strftime('%Y-%m-%d %H:%M')}")
+            st.caption(f"저장일: {bookmark["created_at"]}")
             
             # 북마크 삭제 버튼
             if st.button("삭제", key=f"delete_{bookmark['id']}"):
